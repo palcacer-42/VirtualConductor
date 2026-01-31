@@ -348,42 +348,95 @@ def main():
             annotated_frame = draw_landmarks(frame, results)
             
             # --- Data Info Overlay ---
-            # Helper to draw multiline text with background
-            info_lines = []
+            # Constants for layout
+            col_width = 230
+            line_height = 28
+            start_x = 10
+            start_y = 60
+            font_scale = 0.7
             
-            # 1. Right Hand Index
+            # Data Containers
+            left_lines = ["--- LEFT HAND ---"]
+            right_lines = ["--- RIGHT HAND ---"]
+            face_lines = ["--- FACE ---"]
+
+            # Finger Names for loop
+            digits = [("Thumb", 4), ("Index", 8), ("Mid", 12), ("Ring", 16), ("Pinky", 20)]
+
+            # 1. Left Hand Data
             if not active_modules["hands"]:
-                info_lines.append("R-Index: [OFF]")
-                info_lines.append("R-Thumb: [OFF]")
-            elif results["right_hand"]:
-                r_index = results["right_hand"][8]
-                r_thumb = results["right_hand"][4]
-                info_lines.append(f"R-Index: {r_index.x:.2f}, {r_index.y:.2f}")
-                info_lines.append(f"R-Thumb: {r_thumb.x:.2f}, {r_thumb.y:.2f}")
+                left_lines.append("[OFF]")
+            elif results["left_hand"]:
+                for name, idx in digits:
+                    pt = results["left_hand"][idx]
+                    left_lines.append(f"{name}: {pt.x:.2f}, {pt.y:.2f}")
             else:
-                info_lines.append("R-Index: --")
-                info_lines.append("R-Thumb: --")
+                left_lines.append("No Detection")
+
+            # 2. Right Hand Data
+            if not active_modules["hands"]:
+                right_lines.append("[OFF]")
+            elif results["right_hand"]:
+                for name, idx in digits:
+                    pt = results["right_hand"][idx]
+                    right_lines.append(f"{name}: {pt.x:.2f}, {pt.y:.2f}")
+            else:
+                right_lines.append("No Detection")
                 
-            # 2. Mouth (Lips)
+            # 3. Face Data
             if not active_modules["face"]:
-                info_lines.append("Mouth:   [OFF]")
+                face_lines.append("[OFF]")
             elif results["face"]:
                 face = results["face"].face_landmarks[0]
-                mouth_x = (face[13].x + face[14].x) / 2
-                mouth_y = (face[13].y + face[14].y) / 2
-                info_lines.append(f"Mouth:   {mouth_x:.2f}, {mouth_y:.2f}")
+                # Nose Tip (1)
+                nose = face[1]
+                face_lines.append(f"Nose: {nose.x:.2f}, {nose.y:.2f}")
+                # Eyes (33=L, 263=R)
+                eye_l = face[33]
+                eye_r = face[263]
+                face_lines.append(f"L-Eye: {eye_l.x:.2f}, {eye_l.y:.2f}")
+                face_lines.append(f"R-Eye: {eye_r.x:.2f}, {eye_r.y:.2f}")
+                # Mouth
+                m_x = (face[13].x + face[14].x) / 2
+                m_y = (face[13].y + face[14].y) / 2
+                face_lines.append(f"Mouth: {m_x:.2f}, {m_y:.2f}")
             else:
-                info_lines.append("Mouth:   --")
+                face_lines.append("No Detection")
 
-            # Draw Output Box
-            box_height = len(info_lines) * 25 + 10
-            cv2.rectangle(annotated_frame, (5, 55), (250, 55 + box_height), (0, 0, 0), -1)
+            # Draw Background Box
+            # Width = 2 columns + padding
+            # Height = Max(Left, Right) + Face Rows
+            max_hand_rows = max(len(left_lines), len(right_lines))
+            total_rows = max_hand_rows + len(face_lines) + 1
+            box_h = int(total_rows * line_height) + 10
+            box_w = (col_width * 2) + 20
             
-            y_offset = 80
-            for line in info_lines:
-                cv2.putText(annotated_frame, line, (15, y_offset), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (50, 255, 50), 2)
-                y_offset += 25
+            cv2.rectangle(annotated_frame, (5, 45), (5 + box_w, 45 + box_h), (0, 0, 0), -1)
+            
+            # Function to draw column
+            def draw_col(lines, x_pos, start_y):
+                y = start_y
+                for line in lines:
+                    color = (200, 200, 200) # Grayish standard
+                    if "LEFT" in line: color = (100, 200, 255) # Orange-ish/Blue? Let's go Cyan for Left
+                    if "RIGHT" in line: color = (100, 255, 100) # Green for Right
+                    if "FACE" in line: color = (255, 255, 100) # Yellow for Face
+                    
+                    cv2.putText(annotated_frame, line, (x_pos, y), 
+                               cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 1)
+                    y += line_height
+                return y
+
+            # Draw Left Col
+            draw_col(left_lines, start_x, start_y)
+            
+            # Draw Right Col
+            draw_col(right_lines, start_x + col_width, start_y)
+            
+            # Draw Face (Centered-ish below)
+            # Calculate Y start for face based on max hand lines
+            face_start_y = start_y + (max_hand_rows * line_height) + 5
+            draw_col(face_lines, start_x, face_start_y)
             # -------------------------
             
             # Display status on main frame
