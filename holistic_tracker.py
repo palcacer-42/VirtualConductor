@@ -11,6 +11,7 @@ from mediapipe.tasks.python import vision
 import numpy as np
 import time
 from midi_controller import MidiController
+from osc_controller import OscController
 
 # Configuration
 FACE_MODEL = 'face_landmarker.task'
@@ -43,6 +44,9 @@ class HolisticTracker:
 
         # Initialize MIDI
         self.midi = MidiController()
+        
+        # Initialize OSC
+        self.osc = OscController()
 
     def _init_face_landmarker(self):
         options = vision.FaceLandmarkerOptions(
@@ -117,10 +121,26 @@ class HolisticTracker:
             index_y = 1.0 - holistic_data["left_hand"][8].y
             self.midi.send_control_change(0, MIDI_CC_LEFT_INDEX, index_y)
             
+            # Send OSC
+            # /hand/left/index_y
+            self.osc.send_value("/hand/left/index_y", index_y)
+            # /hand/left/index_pos (x, y, z)
+            # Note: OSC standard usually preferred non-inverted Y or explicit coordination. Keeping inverted Y for consistency with MIDI unless user asks otherwise.
+            # However, for raw position, sending raw (x, y, z) is often cleaner for creative coding.
+            raw_y = holistic_data["left_hand"][8].y
+            self.osc.send_vector("/hand/left/index_pos", holistic_data["left_hand"][8].x, raw_y, holistic_data["left_hand"][8].z)
+
         # Right Hand Index Tip (Y axis) -> CC 11
         if holistic_data["right_hand"]:
             index_y = 1.0 - holistic_data["right_hand"][8].y
             self.midi.send_control_change(0, MIDI_CC_RIGHT_INDEX, index_y)
+            
+            # Send OSC
+            # /hand/right/index_y
+            self.osc.send_value("/hand/right/index_y", index_y)
+            # /hand/right/index_pos (x, y, z)
+            raw_y = holistic_data["right_hand"][8].y
+            self.osc.send_vector("/hand/right/index_pos", holistic_data["right_hand"][8].x, raw_y, holistic_data["right_hand"][8].z)
                     
         return holistic_data
 
