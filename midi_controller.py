@@ -29,12 +29,24 @@ class MidiController:
             ports = mido.get_output_names()
             print(f"Available MIDI Ports: {ports}")
             
+            # Priority Logic: Look for "IAC" or "Driver"
+            target_port = None
+            
             if port_name and port_name in ports:
-                self.output = mido.open_output(port_name)
-            elif ports:
-                # Default to the first available port (often IAC Driver if enabled)
-                print(f"Opening default MIDI port: {ports[0]}")
-                self.output = mido.open_output(ports[0])
+                target_port = port_name
+            else:
+                for p in ports:
+                    if "IAC" in p or "Driver" in p:
+                        target_port = p
+                        break
+                
+                # Fallback to first available if priority not found
+                if not target_port and ports:
+                    target_port = ports[0]
+
+            if target_port:
+                print(f"Opening MIDI port: {target_port}")
+                self.output = mido.open_output(target_port)
             else:
                 print("No MIDI ports found. MIDI functionalities will be disabled.")
                 print("Please enable IAC Driver in 'Audio MIDI Setup' on macOS.")
