@@ -19,9 +19,8 @@ HAND_MODEL = 'hand_landmarker.task'
 POSE_MODEL = 'pose_landmarker.task'
 CAMERA_ID = 0
 
-# MIDI Mapping
-MIDI_CC_LEFT_INDEX = 1   # Modulation
-MIDI_CC_RIGHT_INDEX = 11 # Expression
+# Standard MIDI CCs to cycle through
+MIDI_XX_OPTIONS = [1, 2, 7, 10, 11, 74, 71, 73] # Mod, Breath, Vol, Pan, Exp, Cutoff, Res, Attack
 
 # Drawing constants
 MARGIN = 10
@@ -80,8 +79,9 @@ class HolisticTracker:
         )
         return vision.PoseLandmarker.create_from_options(options)
 
-    def process_frame(self, frame, timestamp_ms, active_modules):
-        # active_modules is a dict like {"face": True, "hands": True, "pose": True}
+    def process_frame(self, frame, timestamp_ms, active_modules, cc_settings):
+        # active_modules: {"face": bool, ...}
+        # cc_settings: {"left": int, "right": int}
         
         # Convert to MediaPipe Image
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
@@ -105,7 +105,8 @@ class HolisticTracker:
             "face": face_result if (face_result and face_result.face_landmarks) else None,
             "pose": pose_result if (pose_result and pose_result.pose_landmarks) else None,
             "left_hand": None,
-            "right_hand": None
+            "right_hand": None,
+            "midi_values": {"left": 0, "right": 0} # Return sent values for UI
         }
         
         # Process hands to identify Left vs Right
@@ -116,40 +117,39 @@ class HolisticTracker:
                 
                 # Assign to correct key
                 # Note: Swapped logic to match user's mirror view expectation.
-                # When user raises Left hand, MediaPipe might say "Right" or "Left" depending on model mode,
-                # but user wants the visual left side to be labeled "Left".
-                # Empirically swapping based on user report.
                 if handedness == "Left":
                     holistic_data["right_hand"] = hand_landmarks
                 else:
                     holistic_data["left_hand"] = hand_landmarks
 
         # Send MIDI Data
-        # Left Hand Index Tip (Y axis) -> CC 1
+        # Left Hand Index Tip (Y axis) -> Dynamic CC
         if holistic_data["left_hand"]:
             # Y is normalized 0.0 (top) to 1.0 (bottom).
             # We usually want 0 at bottom, so invert it: 1.0 - y
             index_y = 1.0 - holistic_data["left_hand"][8].y
-            self.midi.send_control_change(0, MIDI_CC_LEFT_INDEX, index_y)
+            
+            # Store for UI (0-127 representation)
+            holistic_data["midi_values"]["left"] = int(index_y * 127)
+            
+            self.midi.send_control_change(0, cc_settings["left"], index_y)
             
             # Send OSC
-            # /hand/left/index_y
             self.osc.send_value("/hand/left/index_y", index_y)
-            # /hand/left/index_pos (x, y, z)
-            # Note: OSC standard usually preferred non-inverted Y or explicit coordination. Keeping inverted Y for consistency with MIDI unless user asks otherwise.
-            # However, for raw position, sending raw (x, y, z) is often cleaner for creative coding.
             raw_y = holistic_data["left_hand"][8].y
             self.osc.send_vector("/hand/left/index_pos", holistic_data["left_hand"][8].x, raw_y, holistic_data["left_hand"][8].z)
 
-        # Right Hand Index Tip (Y axis) -> CC 11
+        # Right Hand Index Tip (Y axis) -> Dynamic CC
         if holistic_data["right_hand"]:
             index_y = 1.0 - holistic_data["right_hand"][8].y
-            self.midi.send_control_change(0, MIDI_CC_RIGHT_INDEX, index_y)
+            
+            # Store for UI
+            holistic_data["midi_values"]["right"] = int(index_y * 127)
+            
+            self.midi.send_control_change(0, cc_settings["right"], index_y)
             
             # Send OSC
-            # /hand/right/index_y
             self.osc.send_value("/hand/right/index_y", index_y)
-            # /hand/right/index_pos (x, y, z)
             raw_y = holistic_data["right_hand"][8].y
             self.osc.send_vector("/hand/right/index_pos", holistic_data["right_hand"][8].x, raw_y, holistic_data["right_hand"][8].z)
                     
@@ -245,12 +245,18 @@ def main():
     
     # Control Window Setup
     cv2.namedWindow('Controls')
+    cv2.resizeWindow('Controls', 400, 200) # Ensure window is large enough
     
     # Button Configuration
+    # Types: 'toggle' or 'cycle'
     buttons = {
-        "Face":  {"state": True, "rect": (20, 20, 100, 50)},
-        "Hands": {"state": True, "rect": (140, 20, 100, 50)},
-        "Pose":  {"state": True, "rect": (260, 20, 100, 50)}
+        "Face":  {"type": "toggle", "state": True, "rect": (10, 20, 80, 40)},
+        "Hands": {"type": "toggle", "state": True, "rect": (100, 20, 80, 40)},
+        "Pose":  {"type": "toggle", "state": True, "rect": (190, 20, 80, 40)},
+        
+        # MIDI Assignment Buttons (Cycle)
+        "L-CC":  {"type": "cycle", "index": 0, "rect": (10, 80, 100, 50), "value_out": 0},
+        "R-CC":  {"type": "cycle", "index": 4, "rect": (120, 80, 100, 50), "value_out": 0} # Start at CC 11 (index 4)
     }
     
     def mouse_callback(event, x, y, flags, param):
@@ -258,33 +264,52 @@ def main():
             for name, btn in buttons.items():
                 bx, by, bw, bh = btn["rect"]
                 if bx <= x <= bx + bw and by <= y <= by + bh:
-                    btn["state"] = not btn["state"]
-                    print(f"Toggled {name}: {btn['state']}")
+                    if btn["type"] == "toggle":
+                        btn["state"] = not btn["state"]
+                    elif btn["type"] == "cycle":
+                        btn["index"] = (btn["index"] + 1) % len(MIDI_XX_OPTIONS)
+                        
+                    print(f"Clicked {name}")
 
     cv2.setMouseCallback('Controls', mouse_callback)
 
     def draw_controls(buttons):
-        # Create black background
-        control_img = np.zeros((100, 380, 3), dtype=np.uint8)
+        # Create black background (now taller for more controls)
+        control_img = np.zeros((150, 400, 3), dtype=np.uint8)
         
         for name, btn in buttons.items():
             bx, by, bw, bh = btn["rect"]
-            state = btn["state"]
             
-            # Color: Green if On, Gray if Off
-            color = (0, 255, 0) if state else (100, 100, 100)
+            # Button Logic
+            if btn["type"] == "toggle":
+                state = btn["state"]
+                color = (0, 255, 0) if state else (100, 100, 100)
+                label = name
+                text_color = (0, 0, 0) if state else (255, 255, 255)
+                
+            elif btn["type"] == "cycle":
+                cc_num = MIDI_XX_OPTIONS[btn["index"]]
+                color = (255, 100, 0) # Orange for setting
+                label = f"{name}: {cc_num}"
+                text_color = (255, 255, 255)
+                
+                # Draw Value Bar at bottom of button
+                val_norm = btn["value_out"] / 127.0
+                bar_h = int(bh * val_norm)
+                if bar_h > 0:
+                    cv2.rectangle(control_img, (bx, by + bh - bar_h), (bx + bw, by + bh), (255, 150, 50), -1)
             
-            # Draw Button
+            # Draw Button Background
             cv2.rectangle(control_img, (bx, by), (bx + bw, by + bh), color, -1)
             
+            # Draw Outer Border
+            cv2.rectangle(control_img, (bx, by), (bx + bw, by + bh), (200, 200, 200), 1)
+            
             # Draw Text
-            text_size = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
             text_x = bx + (bw - text_size[0]) // 2
             text_y = by + (bh + text_size[1]) // 2
-            
-            # Text color: Black if On, White if Off (for contrast)
-            text_color = (0, 0, 0) if state else (255, 255, 255)
-            cv2.putText(control_img, name, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2)
+            cv2.putText(control_img, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
             
         return control_img
     
@@ -299,13 +324,55 @@ def main():
                 "hands": buttons["Hands"]["state"],
                 "pose": buttons["Pose"]["state"]
             }
+            
+            # Get Current CC Settings
+            cc_settings = {
+                "left": MIDI_XX_OPTIONS[buttons["L-CC"]["index"]],
+                "right": MIDI_XX_OPTIONS[buttons["R-CC"]["index"]]
+            }
 
             # Flip for mirror view
             frame = cv2.flip(frame, 1)
-            results = tracker.process_frame(frame, int(time.time() * 1000), active_modules)
+            results = tracker.process_frame(frame, int(time.time() * 1000), active_modules, cc_settings)
+            
+            # Update Button UI with output values for visualization
+            buttons["L-CC"]["value_out"] = results["midi_values"]["left"]
+            buttons["R-CC"]["value_out"] = results["midi_values"]["right"]
             
             # Visualization
             annotated_frame = draw_landmarks(frame, results)
+            
+            # --- Data Info Overlay ---
+            # Helper to draw multiline text
+            y_offset = 60
+            line_height = 25
+            
+            info_lines = []
+            
+            # 1. Right Hand Index
+            if results["right_hand"]:
+                r_index = results["right_hand"][8]
+                info_lines.append(f"R-Index: {r_index.x:.2f}, {r_index.y:.2f}")
+                
+            # 2. Right Hand Thumb
+            if results["right_hand"]:
+                r_thumb = results["right_hand"][4]
+                info_lines.append(f"R-Thumb: {r_thumb.x:.2f}, {r_thumb.y:.2f}")
+                
+            # 3. Mouth (Lips) - Using center point (avg of upper/lower lip)
+            # MediaPipe Face Mesh: 13 (upper), 14 (lower)
+            if results["face"]:
+                face = results["face"].face_landmarks[0]
+                mouth_x = (face[13].x + face[14].x) / 2
+                mouth_y = (face[13].y + face[14].y) / 2
+                info_lines.append(f"Mouth:   {mouth_x:.2f}, {mouth_y:.2f}")
+
+            # Draw lines
+            for line in info_lines:
+                cv2.putText(annotated_frame, line, (10, y_offset), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (50, 255, 50), 2)
+                y_offset += line_height
+            # -------------------------
             
             # Display status on main frame
             status_text = []
