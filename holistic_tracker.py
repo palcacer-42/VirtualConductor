@@ -247,6 +247,10 @@ def main():
     cv2.namedWindow('Controls')
     cv2.resizeWindow('Controls', 400, 200) # Ensure window is large enough
     
+    # Main Window Setup
+    cv2.namedWindow('Virtual Conductor', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Virtual Conductor', 800, 600)
+    
     # Button Configuration
     # Types: 'toggle' or 'cycle'
     buttons = {
@@ -314,6 +318,7 @@ def main():
         return control_img
     
     try:
+        windows_positioned = False
         while cap.isOpened():
             success, frame = cap.read()
             if not success: continue
@@ -396,6 +401,13 @@ def main():
             # Draw and Show Controls
             control_ui = draw_controls(buttons)
             cv2.imshow('Controls', control_ui)
+            
+            # Position windows once on startup (Vertical Stack)
+            if not windows_positioned:
+                cv2.moveWindow('Virtual Conductor', 0, 0)
+                # Position Controls below the main window (Fixed 600 height + 50 px buffer)
+                cv2.moveWindow('Controls', 0, 650)
+                windows_positioned = True
             
             if cv2.waitKey(1) & 0xFF in [ord('q'), 27]:
                 break
