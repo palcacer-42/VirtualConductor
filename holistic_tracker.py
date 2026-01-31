@@ -80,25 +80,36 @@ class HolisticTracker:
         )
         return vision.PoseLandmarker.create_from_options(options)
 
-    def process_frame(self, frame, timestamp_ms):
+    def process_frame(self, frame, timestamp_ms, active_modules):
+        # active_modules is a dict like {"face": True, "hands": True, "pose": True}
+        
         # Convert to MediaPipe Image
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         
-        # Run detection synchronously
-        face_result = self.face_landmarker.detect_for_video(mp_image, timestamp_ms)
-        hand_result = self.hand_landmarker.detect_for_video(mp_image, timestamp_ms)
-        pose_result = self.pose_landmarker.detect_for_video(mp_image, timestamp_ms)
+        face_result = None
+        hand_result = None
+        pose_result = None
+        
+        # Run detection synchronously ONLY if active
+        if active_modules["face"]:
+            face_result = self.face_landmarker.detect_for_video(mp_image, timestamp_ms)
+            
+        if active_modules["hands"]:
+            hand_result = self.hand_landmarker.detect_for_video(mp_image, timestamp_ms)
+            
+        if active_modules["pose"]:
+            pose_result = self.pose_landmarker.detect_for_video(mp_image, timestamp_ms)
         
         # Structure results clearly as requested
         holistic_data = {
-            "face": face_result if face_result.face_landmarks else None,
-            "pose": pose_result if pose_result.pose_landmarks else None,
+            "face": face_result if (face_result and face_result.face_landmarks) else None,
+            "pose": pose_result if (pose_result and pose_result.pose_landmarks) else None,
             "left_hand": None,
             "right_hand": None
         }
         
         # Process hands to identify Left vs Right
-        if hand_result.hand_landmarks:
+        if hand_result and hand_result.hand_landmarks:
             for idx, hand_landmarks in enumerate(hand_result.hand_landmarks):
                 # Get handedness (label is "Left" or "Right")
                 handedness = hand_result.handedness[idx][0].category_name
@@ -232,19 +243,71 @@ def main():
     tracker = HolisticTracker()
     print("Holistic Tracker Started: Face + Hands + Pose")
     
+    # Control Window Setup
+    cv2.namedWindow('Controls')
+    
+    # Button Configuration
+    buttons = {
+        "Face":  {"state": True, "rect": (20, 20, 100, 50)},
+        "Hands": {"state": True, "rect": (140, 20, 100, 50)},
+        "Pose":  {"state": True, "rect": (260, 20, 100, 50)}
+    }
+    
+    def mouse_callback(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            for name, btn in buttons.items():
+                bx, by, bw, bh = btn["rect"]
+                if bx <= x <= bx + bw and by <= y <= by + bh:
+                    btn["state"] = not btn["state"]
+                    print(f"Toggled {name}: {btn['state']}")
+
+    cv2.setMouseCallback('Controls', mouse_callback)
+
+    def draw_controls(buttons):
+        # Create black background
+        control_img = np.zeros((100, 380, 3), dtype=np.uint8)
+        
+        for name, btn in buttons.items():
+            bx, by, bw, bh = btn["rect"]
+            state = btn["state"]
+            
+            # Color: Green if On, Gray if Off
+            color = (0, 255, 0) if state else (100, 100, 100)
+            
+            # Draw Button
+            cv2.rectangle(control_img, (bx, by), (bx + bw, by + bh), color, -1)
+            
+            # Draw Text
+            text_size = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            text_x = bx + (bw - text_size[0]) // 2
+            text_y = by + (bh + text_size[1]) // 2
+            
+            # Text color: Black if On, White if Off (for contrast)
+            text_color = (0, 0, 0) if state else (255, 255, 255)
+            cv2.putText(control_img, name, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2)
+            
+        return control_img
+    
     try:
         while cap.isOpened():
             success, frame = cap.read()
             if not success: continue
 
+            # Update Active Modules from Button States
+            active_modules = {
+                "face": buttons["Face"]["state"],
+                "hands": buttons["Hands"]["state"],
+                "pose": buttons["Pose"]["state"]
+            }
+
             # Flip for mirror view
             frame = cv2.flip(frame, 1)
-            results = tracker.process_frame(frame, int(time.time() * 1000))
+            results = tracker.process_frame(frame, int(time.time() * 1000), active_modules)
             
             # Visualization
             annotated_frame = draw_landmarks(frame, results)
             
-            # Display status
+            # Display status on main frame
             status_text = []
             if results["face"]: status_text.append("Face")
             if results["pose"]: status_text.append("Pose")
@@ -254,7 +317,11 @@ def main():
             cv2.putText(annotated_frame, f"Tracking: {', '.join(status_text)}", 
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-            cv2.imshow('Holistic Tracking', annotated_frame)
+            cv2.imshow('Virtual Conductor', annotated_frame)
+            
+            # Draw and Show Controls
+            control_ui = draw_controls(buttons)
+            cv2.imshow('Controls', control_ui)
             
             if cv2.waitKey(1) & 0xFF in [ord('q'), 27]:
                 break
