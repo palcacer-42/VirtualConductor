@@ -343,35 +343,42 @@ def main():
             annotated_frame = draw_landmarks(frame, results)
             
             # --- Data Info Overlay ---
-            # Helper to draw multiline text
-            y_offset = 60
-            line_height = 25
-            
+            # Helper to draw multiline text with background
             info_lines = []
             
             # 1. Right Hand Index
-            if results["right_hand"]:
+            if not active_modules["hands"]:
+                info_lines.append("R-Index: [OFF]")
+                info_lines.append("R-Thumb: [OFF]")
+            elif results["right_hand"]:
                 r_index = results["right_hand"][8]
-                info_lines.append(f"R-Index: {r_index.x:.2f}, {r_index.y:.2f}")
-                
-            # 2. Right Hand Thumb
-            if results["right_hand"]:
                 r_thumb = results["right_hand"][4]
+                info_lines.append(f"R-Index: {r_index.x:.2f}, {r_index.y:.2f}")
                 info_lines.append(f"R-Thumb: {r_thumb.x:.2f}, {r_thumb.y:.2f}")
+            else:
+                info_lines.append("R-Index: --")
+                info_lines.append("R-Thumb: --")
                 
-            # 3. Mouth (Lips) - Using center point (avg of upper/lower lip)
-            # MediaPipe Face Mesh: 13 (upper), 14 (lower)
-            if results["face"]:
+            # 2. Mouth (Lips)
+            if not active_modules["face"]:
+                info_lines.append("Mouth:   [OFF]")
+            elif results["face"]:
                 face = results["face"].face_landmarks[0]
                 mouth_x = (face[13].x + face[14].x) / 2
                 mouth_y = (face[13].y + face[14].y) / 2
                 info_lines.append(f"Mouth:   {mouth_x:.2f}, {mouth_y:.2f}")
+            else:
+                info_lines.append("Mouth:   --")
 
-            # Draw lines
+            # Draw Output Box
+            box_height = len(info_lines) * 25 + 10
+            cv2.rectangle(annotated_frame, (5, 55), (250, 55 + box_height), (0, 0, 0), -1)
+            
+            y_offset = 80
             for line in info_lines:
-                cv2.putText(annotated_frame, line, (10, y_offset), 
+                cv2.putText(annotated_frame, line, (15, y_offset), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (50, 255, 50), 2)
-                y_offset += line_height
+                y_offset += 25
             # -------------------------
             
             # Display status on main frame
