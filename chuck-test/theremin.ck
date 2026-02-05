@@ -1,4 +1,4 @@
-// theremin.ck - Two-hand OSC Theremin
+// theremin.ck - Two-hand OSC Theremin with Smooth Interpolation
 // Right hand index = pitch, Left hand index = volume
 // Run: chuck theremin.ck
 
@@ -6,6 +6,14 @@
 SinOsc s => Gain g => dac;
 440 => s.freq;      // Starting frequency
 0.5 => g.gain;      // Starting volume
+
+// ===== TARGET VALUES (updated by OSC) =====
+440.0 => float targetFreq;
+0.5 => float targetGain;
+
+// ===== INTERPOLATION SETTINGS =====
+0.1 => float smoothing;  // 0.01 = very smooth, 0.5 = fast response
+5::ms => dur updateRate; // How often to interpolate
 
 // ===== OSC SETUP =====
 OscRecv recv;
@@ -16,14 +24,14 @@ recv.listen();
 recv.event("/right-hand/index, f f f") @=> OscEvent rightHand;
 recv.event("/left-hand/index, f f f") @=> OscEvent leftHand;
 
-<<< "🎵 Two-Hand Theremin Ready!" >>>;
+<<< "🎵 Two-Hand Theremin Ready! (with smooth interpolation)" >>>;
 <<< "   Right hand = PITCH (200-800 Hz)" >>>;
 <<< "   Left hand  = VOLUME" >>>;
+<<< "   Smoothing:", smoothing >>>;
 <<< "   Listening on port 8000..." >>>;
-<<< "   Press Ctrl+C to quit" >>>;
 
-// ===== RIGHT HAND: Pitch Control =====
-fun void pitchControl() {
+// ===== RIGHT HAND: Update Target Pitch =====
+fun void pitchOSC() {
     while(true) {
         rightHand => now;
         while(rightHand.nextMsg()) {
@@ -31,15 +39,14 @@ fun void pitchControl() {
             rightHand.getFloat() => float y;
             rightHand.getFloat() => float z;
             
-            // Map Y (0-1) to frequency (200-800 Hz)
-            // Invert: hand up = high pitch
-            200 + ((1.0 - y) * 600) => s.freq;
+            // Set target (not applied directly)
+            200 + ((1.0 - y) * 600) => targetFreq;
         }
     }
 }
 
-// ===== LEFT HAND: Volume Control =====
-fun void volumeControl() {
+// ===== LEFT HAND: Update Target Volume =====
+fun void volumeOSC() {
     while(true) {
         leftHand => now;
         while(leftHand.nextMsg()) {
@@ -47,16 +54,30 @@ fun void volumeControl() {
             leftHand.getFloat() => float y;
             leftHand.getFloat() => float z;
             
-            // Map Y (0-1) to volume (0-1)
-            // Invert: hand up = loud
-            (1.0 - y) => g.gain;
+            // Set target (not applied directly)
+            (1.0 - y) => targetGain;
         }
     }
 }
 
-// ===== START CONCURRENT SHREDS =====
-spork ~ pitchControl();
-spork ~ volumeControl();
+// ===== SMOOTH INTERPOLATION SHRED =====
+fun void interpolate() {
+    while(true) {
+        // Glide frequency toward target
+        s.freq() + (targetFreq - s.freq()) * smoothing => s.freq;
+        
+        // Glide volume toward target
+        g.gain() + (targetGain - g.gain()) * smoothing => g.gain;
+        
+        // Wait before next update
+        updateRate => now;
+    }
+}
+
+// ===== START ALL SHREDS =====
+spork ~ pitchOSC();
+spork ~ volumeOSC();
+spork ~ interpolate();
 
 // Keep main shred alive
 while(true) {
