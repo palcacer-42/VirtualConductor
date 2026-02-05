@@ -1,6 +1,18 @@
-// synth.ck - Two-hand OSC Synth with Waveform Crossfade
+// synth.ck - Two-hand OSC Synth with Equal Power Crossfade
 // Right hand = pitch, Left hand = waveform (sine ↔ square)
 // Run: chuck synth.ck
+
+// ===== HELPER FUNCTIONS (reusable) =====
+
+// Equal Power Crossfade - maintains constant perceived loudness
+// mix: 0.0 = fully source A, 1.0 = fully source B
+fun float equalPowerA(float mix) {
+    return Math.sqrt(1.0 - mix);
+}
+
+fun float equalPowerB(float mix) {
+    return Math.sqrt(mix);
+}
 
 // ===== AUDIO SETUP =====
 // Two oscillators mixed together
@@ -30,7 +42,7 @@ recv.listen();
 recv.event("/right-hand/index, f f f") @=> OscEvent rightHand;
 recv.event("/left-hand/index, f f f") @=> OscEvent leftHand;
 
-<<< "🎹 Two-Hand Synth Ready!" >>>;
+<<< "🎹 Two-Hand Synth Ready! (Equal Power Crossfade)" >>>;
 <<< "   Right hand = PITCH (200-800 Hz)" >>>;
 <<< "   Left hand  = WAVEFORM (down=sine, up=square)" >>>;
 <<< "   Listening on port 8000..." >>>;
@@ -77,9 +89,9 @@ fun void interpolate() {
         // Smooth waveform mix
         currentMix + (targetMix - currentMix) * smoothing => currentMix;
         
-        // Crossfade: sine decreases as square increases
-        (1.0 - currentMix) => sineGain.gain;
-        currentMix => sqrGain.gain;
+        // Equal Power Crossfade (sqrt curve)
+        equalPowerA(currentMix) => sineGain.gain;
+        equalPowerB(currentMix) => sqrGain.gain;
         
         updateRate => now;
     }
