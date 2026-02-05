@@ -13,8 +13,11 @@ from mediapipe.tasks.python import vision
 import numpy as np
 import time
 
+import os
+
 # Configuration
-MODEL_PATH = 'hand_landmarker.task'
+MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
+MODEL_PATH = os.path.join(MODEL_DIR, 'hand_landmarker.task')
 CAMERA_ID = 0
 
 # Drawing constants

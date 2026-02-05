@@ -13,10 +13,14 @@ import time
 from midi_controller import MidiController
 from osc_controller import OscController
 
+import os
+
 # Configuration
-FACE_MODEL = 'face_landmarker.task'
-HAND_MODEL = 'hand_landmarker.task'
-POSE_MODEL = 'pose_landmarker.task'
+MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
+
+FACE_MODEL = os.path.join(MODEL_DIR, 'face_landmarker.task')
+HAND_MODEL = os.path.join(MODEL_DIR, 'hand_landmarker.task')
+POSE_MODEL = os.path.join(MODEL_DIR, 'pose_landmarker.task')
 CAMERA_ID = 0
 
 # Standard MIDI CCs to cycle through
