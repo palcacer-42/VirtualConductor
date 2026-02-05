@@ -1,34 +1,46 @@
-// synth.ck - Two-hand OSC Synth with Equal Power Crossfade
-// Right hand = pitch, Left hand = waveform (sine ↔ square)
+// synth.ck - Classic Subtractive Synth (Saw + LPF)
+// Right hand = pitch, Left hand = filter cutoff
 // Run: chuck synth.ck
 
 // ===== HELPER FUNCTIONS (reusable) =====
 
-// Equal Power Crossfade - maintains constant perceived loudness
-// mix: 0.0 = fully source A, 1.0 = fully source B
-fun float equalPowerA(float mix) {
-    return Math.sqrt(1.0 - mix);
+// Map value from one range to another
+fun float mapRange(float value, float inMin, float inMax, float outMin, float outMax) {
+    return outMin + (value - inMin) * (outMax - outMin) / (inMax - inMin);
 }
 
-fun float equalPowerB(float mix) {
-    return Math.sqrt(mix);
+// Clamp value to range
+fun float clamp(float value, float minVal, float maxVal) {
+    if (value < minVal) return minVal;
+    if (value > maxVal) return maxVal;
+    return value;
+}
+
+// Exponential mapping (for perceptually-correct frequency control)
+// value: 0.0-1.0, returns value between minVal and maxVal on exponential curve
+fun float expMap(float value, float minVal, float maxVal) {
+    return minVal * Math.pow(maxVal/minVal, value);
 }
 
 // ===== AUDIO SETUP =====
-// Two oscillators mixed together
-SinOsc sine => Gain sineGain => Gain master => dac;
-SqrOsc sqr  => Gain sqrGain  => master;
+// Classic subtractive: Oscillator -> Filter -> Output
+SawOsc saw => LPF filter => Gain master => dac;
 
 // Starting values
-440 => sine.freq;
-440 => sqr.freq;
-0.5 => master.gain;  // Overall volume
-1.0 => sineGain.gain; // Start with sine
-0.0 => sqrGain.gain;  // Square off
+440 => saw.freq;
+0.5 => master.gain;
+
+// Filter settings
+2000 => filter.freq;  // Cutoff frequency (Hz)
+2.0 => filter.Q;      // Resonance (subtle)
 
 // ===== TARGET VALUES =====
 440.0 => float targetFreq;
-0.0 => float targetMix;  // 0 = sine, 1 = square
+2000.0 => float targetCutoff;
+
+// Filter range (Hz)
+200.0 => float minCutoff;
+4000.0 => float maxCutoff;
 
 // ===== INTERPOLATION SETTINGS =====
 0.1 => float smoothing;
@@ -42,9 +54,9 @@ recv.listen();
 recv.event("/right-hand/index, f f f") @=> OscEvent rightHand;
 recv.event("/left-hand/index, f f f") @=> OscEvent leftHand;
 
-<<< "🎹 Two-Hand Synth Ready! (Equal Power Crossfade)" >>>;
+<<< "🎹 Subtractive Synth Ready! (Saw + LPF)" >>>;
 <<< "   Right hand = PITCH (200-800 Hz)" >>>;
-<<< "   Left hand  = WAVEFORM (down=sine, up=square)" >>>;
+<<< "   Left hand  = FILTER CUTOFF (200-4000 Hz)" >>>;
 <<< "   Listening on port 8000..." >>>;
 
 // ===== RIGHT HAND: Pitch =====
@@ -55,43 +67,40 @@ fun void pitchOSC() {
             rightHand.getFloat() => float x;
             rightHand.getFloat() => float y;
             rightHand.getFloat() => float z;
+            // Hand up = high pitch
             200 + ((1.0 - y) * 600) => targetFreq;
         }
     }
 }
 
-// ===== LEFT HAND: Waveform Mix =====
-fun void waveformOSC() {
+// ===== LEFT HAND: Filter Cutoff =====
+fun void filterOSC() {
     while(true) {
         leftHand => now;
         while(leftHand.nextMsg()) {
             leftHand.getFloat() => float x;
             leftHand.getFloat() => float y;
             leftHand.getFloat() => float z;
-            // Y=0 (hand up) = square, Y=1 (hand down) = sine
-            // Invert: hand up = more square
-            (1.0 - y) => targetMix;
+            // Hand up = bright (high cutoff), Hand down = dark (low cutoff)
+            // Exponential mapping for perceptually-correct response
+            expMap(1.0 - y, minCutoff, maxCutoff) => targetCutoff;
         }
     }
 }
 
 // ===== INTERPOLATION =====
 fun void interpolate() {
-    0.0 => float currentMix;
     440.0 => float currentFreq;
+    2000.0 => float currentCutoff;
     
     while(true) {
         // Smooth frequency
         currentFreq + (targetFreq - currentFreq) * smoothing => currentFreq;
-        currentFreq => sine.freq;
-        currentFreq => sqr.freq;
+        currentFreq => saw.freq;
         
-        // Smooth waveform mix
-        currentMix + (targetMix - currentMix) * smoothing => currentMix;
-        
-        // Equal Power Crossfade (sqrt curve)
-        equalPowerA(currentMix) => sineGain.gain;
-        equalPowerB(currentMix) => sqrGain.gain;
+        // Smooth filter cutoff
+        currentCutoff + (targetCutoff - currentCutoff) * smoothing => currentCutoff;
+        currentCutoff => filter.freq;
         
         updateRate => now;
     }
@@ -99,7 +108,7 @@ fun void interpolate() {
 
 // ===== START SHREDS =====
 spork ~ pitchOSC();
-spork ~ waveformOSC();
+spork ~ filterOSC();
 spork ~ interpolate();
 
 while(true) {
