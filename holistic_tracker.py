@@ -148,10 +148,17 @@ class HolisticTracker:
             
             self.midi.send_control_change(0, cc_settings["right"], index_y)
             
-            # Send OSC
-            self.osc.send_value("/hand/right/index_y", index_y)
-            raw_y = holistic_data["right_hand"][8].y
-            self.osc.send_vector("/hand/right/index_pos", holistic_data["right_hand"][8].x, raw_y, holistic_data["right_hand"][8].z)
+            # Send OSC - Right hand fingertips
+            fingers = [
+                ("thumb", 4),
+                ("index", 8),
+                ("middle", 12),
+                ("ring", 16),
+                ("pinky", 20)
+            ]
+            for name, idx in fingers:
+                pt = holistic_data["right_hand"][idx]
+                self.osc.send_vector(f"/right-hand/{name}", pt.x, pt.y, pt.z)
                     
         return holistic_data
 
