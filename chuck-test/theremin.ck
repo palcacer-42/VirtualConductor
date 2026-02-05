@@ -13,10 +13,10 @@ OscRecv recv;
 recv.listen();
 
 // Subscribe to index finger position
-recv.event("/right-hand/index, f f f") @=> OscEvent indexEvent;
+recv.event("/left-hand/index, f f f") @=> OscEvent indexEvent;
 
 <<< "🎵 Theremin ready! Listening on port 8000" >>>;
-<<< "   Move your right INDEX FINGER to control pitch" >>>;
+<<< "   Move your LEFT INDEX FINGER to control pitch" >>>;
 <<< "   Press Ctrl+C to quit" >>>;
 
 // Main loop

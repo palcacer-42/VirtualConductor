@@ -134,10 +134,17 @@ class HolisticTracker:
             
             self.midi.send_control_change(0, cc_settings["left"], index_y)
             
-            # Send OSC
-            self.osc.send_value("/hand/left/index_y", index_y)
-            raw_y = holistic_data["left_hand"][8].y
-            self.osc.send_vector("/hand/left/index_pos", holistic_data["left_hand"][8].x, raw_y, holistic_data["left_hand"][8].z)
+            # Send OSC - Left hand fingertips
+            fingers = [
+                ("thumb", 4),
+                ("index", 8),
+                ("middle", 12),
+                ("ring", 16),
+                ("pinky", 20)
+            ]
+            for name, idx in fingers:
+                pt = holistic_data["left_hand"][idx]
+                self.osc.send_vector(f"/left-hand/{name}", pt.x, pt.y, pt.z)
 
         # Right Hand Index Tip (Y axis) -> Dynamic CC
         if holistic_data["right_hand"]:
