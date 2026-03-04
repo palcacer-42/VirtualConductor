@@ -48,6 +48,8 @@ amp[i] = 0.5 * (1 - cos(2π * i / N))
 
 This is the standard window for smooth, seamless grain blending.
 
+**Important:** LiSa's built-in `rampUp`/`rampDown` is **linear**, which disturbs the grain spectrum and can cause artifacts. We apply the Hanning envelope **manually** inside the grain function for a proper musical cloud texture.
+
 ---
 
 ## Pitch Shifting — Variable Playback Rate
