@@ -56,4 +56,57 @@ fun void spawner() {
 
 spork ~ spawner();
 
+// keyboard control
+// g = grainSize, d = density, p = position, s = posSpray
+// + / - to increase / decrease selected parameter
+"g" => string selected;
+
+fun void printControls() {
+    chout <= "\r  g:" + (grainSize/ms) + "ms d:" + density + " p:" + position + " s:" + posSpray + " [" + selected + "]       ";
+    chout.flush();
+}
+
+fun void keyboard() {
+    KBHit kb;
+    kb.on();
+    <<< "controls: g=grainSize d=density p=position s=posSpray  +/- to change" >>>;
+    printControls();
+
+    while( true ) {
+        kb => now;
+        while( kb.more() ) {
+            kb.getchar() => int key;
+
+            // quit
+            if( key == 113 ) { <<< "\nbye!" >>>; Machine.removeAllShreds(); }
+
+            // select parameter
+            if( key == 103 ) { "g" => selected; printControls(); }
+            if( key == 100 ) { "d" => selected; printControls(); }
+            if( key == 112 ) { "p" => selected; printControls(); }
+            if( key == 115 ) { "s" => selected; printControls(); }
+
+            // increase
+            if( key == 43 ) {
+                if( selected == "g" ) { grainSize + 10::ms => grainSize; }
+                if( selected == "d" ) { density + 1.0 => density; }
+                if( selected == "p" ) { Math.min(position + 0.05, 1.0) => position; }
+                if( selected == "s" ) { Math.min(posSpray + 0.05, 1.0) => posSpray; }
+                printControls();
+            }
+
+            // decrease
+            if( key == 45 ) {
+                if( selected == "g" ) { if( grainSize > 10::ms ) grainSize - 10::ms => grainSize; }
+                if( selected == "d" ) { Math.max(density - 1.0, 1.0) => density; }
+                if( selected == "p" ) { Math.max(position - 0.05, 0.0) => position; }
+                if( selected == "s" ) { Math.max(posSpray - 0.05, 0.0) => posSpray; }
+                printControls();
+            }
+        }
+    }
+}
+
+spork ~ keyboard();
+
 while( true ) { 1::second => now; }
