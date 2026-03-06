@@ -2,7 +2,8 @@
 // Fake mic input: loops a WAV file continuously
 // Replace SndBuf with adc when real mic is ready
 
-SndBuf input => blackhole;
+SndBuf input => Gain inputGain => dac;
+0.5 => inputGain.gain;
 me.dir() + "/samples/tiorba.wav" => input.read;
 1 => input.loop;
 1.0 => input.rate;
@@ -28,6 +29,12 @@ grainBuffer.chan(1) => masterR => dac.right;
 0.5 => float position;
 0.1 => float posSpray;
 0.3 => float panSpray;
+0.0 => float octaveUp;
+0.0 => float octaveDown;
+0.0 => float fineRange;
+0.0 => float fineProb;
+0.0 => float pitchRange;
+0.0 => float pitchProb;
 
 // limiter parameters
 5::ms   => dur   limiterAttack;
@@ -43,7 +50,14 @@ grainBuffer.chan(1) => masterR => dac.right;
 50::ms  => dur   DYNO_RELEASE_MIN; 1000::ms => dur   DYNO_RELEASE_MAX;
 0.1     => float DYNO_THRESH_MIN;  1.0      => float DYNO_THRESH_MAX;
 0.0     => float MASTER_VOL_MIN;   2.0      => float MASTER_VOL_MAX;
+0.0     => float INPUT_GAIN_MIN;   1.0      => float INPUT_GAIN_MAX;
 0.0     => float PAN_SPRAY_MIN;    0.5      => float PAN_SPRAY_MAX;
+0.0     => float OCTAVE_UP_MIN;    1.0      => float OCTAVE_UP_MAX;
+0.0     => float OCTAVE_DOWN_MIN;  1.0      => float OCTAVE_DOWN_MAX;
+0.0     => float FINE_RANGE_MIN;   100.0    => float FINE_RANGE_MAX;
+0.0     => float FINE_PROB_MIN;    1.0      => float FINE_PROB_MAX;
+0.0     => float PITCH_RANGE_MIN;  12.0     => float PITCH_RANGE_MAX;
+0.0     => float PITCH_PROB_MIN;   1.0      => float PITCH_PROB_MAX;
 
 // setters — any UI layer should use these to enforce bounds
 fun void setGrainSize(dur val) {
@@ -73,6 +87,29 @@ fun void setPanSpray(float val) {
     Math.max(Math.min(val, PAN_SPRAY_MAX), PAN_SPRAY_MIN) => panSpray;
 }
 
+fun void setOctaveUp(float val) {
+    Math.max(Math.min(val, OCTAVE_UP_MAX), OCTAVE_UP_MIN) => octaveUp;
+}
+fun void setOctaveDown(float val) {
+    Math.max(Math.min(val, OCTAVE_DOWN_MAX), OCTAVE_DOWN_MIN) => octaveDown;
+}
+fun void setFineRange(float val) {
+    Math.max(Math.min(val, FINE_RANGE_MAX), FINE_RANGE_MIN) => fineRange;
+}
+fun void setFineProb(float val) {
+    Math.max(Math.min(val, FINE_PROB_MAX), FINE_PROB_MIN) => fineProb;
+}
+fun void setPitchRange(float val) {
+    Math.max(Math.min(val, PITCH_RANGE_MAX), PITCH_RANGE_MIN) => pitchRange;
+}
+fun void setPitchProb(float val) {
+    Math.max(Math.min(val, PITCH_PROB_MAX), PITCH_PROB_MIN) => pitchProb;
+}
+
+fun void setInputGain(float val) {
+    Math.max(Math.min(val, INPUT_GAIN_MAX), INPUT_GAIN_MIN) => inputGain.gain;
+}
+
 fun void setMasterVol(float val) {
     Math.max(Math.min(val, MASTER_VOL_MAX), MASTER_VOL_MIN) => masterL.gain => masterR.gain;
 }
@@ -97,7 +134,21 @@ fun void grain() {
     Math.max(0.0, Math.min(1.0, 0.5 + panPos * panSpray)) => panPos;
     grainBuffer.pan(v, panPos);
 
-    grainBuffer.rate(v, 1.0);
+    // pitch: accumulate semitones from all pitch parameters
+    0.0 => float totalSemitones;
+    // octave up (more params will be added here)
+    0 => int octave;
+    if( Math.random2f(0.0, 1.0) < octaveUp )        1 => octave;
+    else if( Math.random2f(0.0, 1.0) < octaveDown ) -1 => octave;
+    octave * 12.0 +=> totalSemitones;
+    // pitch spray (semitones)
+    if( Math.random2f(0.0, 1.0) < pitchProb )
+        Math.random2f(-pitchRange, pitchRange) +=> totalSemitones;
+    // fine detune (cents → semitones: *0.01)
+    if( Math.random2f(0.0, 1.0) < fineProb )
+        Math.random2f(-fineRange, fineRange) * 0.01 +=> totalSemitones;
+    Math.pow(2.0, totalSemitones / 12.0) => float grainRate;
+    grainBuffer.rate(v, grainRate);
     grainBuffer.playPos(v, pos * grainBuffer.duration());
     grainBuffer.voiceGain(v, 0.0); // bug1 fix: start silent before play
     grainBuffer.play(v, 1);
@@ -128,21 +179,22 @@ fun void spawner() {
 spork ~ spawner();
 
 // keyboard control
-// g = grainSize, d = density, p = position, s = posSpray
-// t = limiter thresh, a = limiter attack, r = limiter release
-// w = pan spray, v = master volume
-// + / - to increase / decrease selected parameter
+// GRAIN:   g=grainSize  d=density  p=position  s=posSpray  w=panSpray
+// PITCH:   u=octaveUp   o=octaveDown  k=pitchRange  j=pitchProb  f=fineRange  e=fineProb
+// LIMITER: t=thresh     a=attack   r=release
+// OUTPUT:  i=inputGain  v=masterVol
+// + / - to change selected  |  q = quit
 "g" => string selected;
 
 fun void printControls() {
-    chout <= "\r  g:" + (grainSize/ms) + "ms d:" + density + " p:" + position + " s:" + posSpray + " w:" + panSpray + " | t:" + limiterThresh + " a:" + (limiterAttack/ms) + "ms r:" + (limiterRelease/ms) + "ms | v:" + masterL.gain() + " [" + selected + "]       ";
+    chout <= "\r  g:" + ((grainSize/ms)$int) + "ms d:" + (density$int) + " p:" + ((position*100)$int) + " s:" + ((posSpray*100)$int) + " w:" + ((panSpray*100)$int) + " | u:" + ((octaveUp*100)$int) + " o:" + ((octaveDown*100)$int) + " k:" + (pitchRange$int) + "st j:" + ((pitchProb*100)$int) + " f:" + (fineRange$int) + "ct e:" + ((fineProb*100)$int) + " | t:" + ((limiterThresh*100)$int) + " a:" + ((limiterAttack/ms)$int) + "ms r:" + ((limiterRelease/ms)$int) + "ms | i:" + ((inputGain.gain()*100)$int) + " v:" + ((masterL.gain()*100)$int) + " [" + selected + "]       ";
     chout.flush();
 }
 
 fun void keyboard() {
     KBHit kb;
     kb.on();
-    <<< "controls: g=grainSize d=density p=position s=posSpray t=limiterThresh a=limiterAttack r=limiterRelease v=masterVol  +/- to change" >>>;
+    <<< "GRAIN: g=grainSize d=density p=position s=posSpray w=panSpray | PITCH: u=octaveUp o=octaveDown | LIMITER: t=thresh a=attack r=release | OUTPUT: i=inputGain v=masterVol | +/- to change | q=quit" >>>;
     printControls();
 
     while( true ) {
@@ -162,6 +214,13 @@ fun void keyboard() {
             if( key == 97  ) { "a" => selected; printControls(); }
             if( key == 114 ) { "r" => selected; printControls(); }
             if( key == 119 ) { "w" => selected; printControls(); } // w
+            if( key == 117 ) { "u" => selected; printControls(); } // u
+            if( key == 111 ) { "o" => selected; printControls(); } // o
+            if( key == 107 ) { "k" => selected; printControls(); } // k
+            if( key == 106 ) { "j" => selected; printControls(); } // j
+            if( key == 102 ) { "f" => selected; printControls(); } // f
+            if( key == 101 ) { "e" => selected; printControls(); } // e
+            if( key == 105 ) { "i" => selected; printControls(); } // i
             if( key == 118 ) { "v" => selected; printControls(); } // v
 
             // increase
@@ -174,6 +233,13 @@ fun void keyboard() {
                 if( selected == "a" ) { setDynoAttack(limiterAttack + 5::ms); }
                 if( selected == "r" ) { setDynoRelease(limiterRelease + 50::ms); }
                 if( selected == "w" ) { setPanSpray(panSpray + 0.05); }
+                if( selected == "u" ) { setOctaveUp(octaveUp + 0.05); }
+                if( selected == "o" ) { setOctaveDown(octaveDown + 0.05); }
+                if( selected == "k" ) { setPitchRange(pitchRange + 1.0); }
+                if( selected == "j" ) { setPitchProb(pitchProb + 0.05); }
+                if( selected == "f" ) { setFineRange(fineRange + 5.0); }
+                if( selected == "e" ) { setFineProb(fineProb + 0.05); }
+                if( selected == "i" ) { setInputGain(inputGain.gain() + 0.05); }
                 if( selected == "v" ) { setMasterVol(masterL.gain() + 0.05); }
                 printControls();
             }
@@ -188,6 +254,13 @@ fun void keyboard() {
                 if( selected == "a" ) { setDynoAttack(limiterAttack - 5::ms); }
                 if( selected == "r" ) { setDynoRelease(limiterRelease - 50::ms); }
                 if( selected == "w" ) { setPanSpray(panSpray - 0.05); }
+                if( selected == "u" ) { setOctaveUp(octaveUp - 0.05); }
+                if( selected == "o" ) { setOctaveDown(octaveDown - 0.05); }
+                if( selected == "k" ) { setPitchRange(pitchRange - 1.0); }
+                if( selected == "j" ) { setPitchProb(pitchProb - 0.05); }
+                if( selected == "f" ) { setFineRange(fineRange - 5.0); }
+                if( selected == "e" ) { setFineProb(fineProb - 0.05); }
+                if( selected == "i" ) { setInputGain(inputGain.gain() - 0.05); }
                 if( selected == "v" ) { setMasterVol(masterL.gain() - 0.05); }
                 printControls();
             }
