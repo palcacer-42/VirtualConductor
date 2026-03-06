@@ -19,6 +19,27 @@ grainBuffer => dac;
 0.5 => float position;
 0.1 => float posSpray;
 
+// parameter bounds
+10::ms  => dur   GRAIN_SIZE_MIN;  500::ms => dur   GRAIN_SIZE_MAX;
+5.0     => float DENSITY_MIN;     50.0    => float DENSITY_MAX;
+0.0     => float POSITION_MIN;    1.0     => float POSITION_MAX;
+0.0     => float POS_SPRAY_MIN;   0.5     => float POS_SPRAY_MAX;
+
+// setters — any UI layer should use these to enforce bounds
+fun void setGrainSize(dur val) {
+    Math.max(val/ms, GRAIN_SIZE_MIN/ms)::ms => val;
+    Math.min(val/ms, GRAIN_SIZE_MAX/ms)::ms => grainSize;
+}
+fun void setDensity(float val) {
+    Math.max(Math.min(val, DENSITY_MAX), DENSITY_MIN) => density;
+}
+fun void setPosition(float val) {
+    Math.max(Math.min(val, POSITION_MAX), POSITION_MIN) => position;
+}
+fun void setPosSpray(float val) {
+    Math.max(Math.min(val, POS_SPRAY_MAX), POS_SPRAY_MIN) => posSpray;
+}
+
 // grain function
 fun void grain() {
     grainBuffer.getVoice() => int v;
@@ -88,19 +109,19 @@ fun void keyboard() {
 
             // increase
             if( key == 43 ) {
-                if( selected == "g" ) { grainSize + 10::ms => grainSize; }
-                if( selected == "d" ) { density + 1.0 => density; }
-                if( selected == "p" ) { Math.min(position + 0.05, 1.0) => position; }
-                if( selected == "s" ) { Math.min(posSpray + 0.05, 1.0) => posSpray; }
+                if( selected == "g" ) { setGrainSize(grainSize + 10::ms); }
+                if( selected == "d" ) { setDensity(density + 1.0); }
+                if( selected == "p" ) { setPosition(position + 0.05); }
+                if( selected == "s" ) { setPosSpray(posSpray + 0.05); }
                 printControls();
             }
 
             // decrease
             if( key == 45 ) {
-                if( selected == "g" ) { if( grainSize > 10::ms ) grainSize - 10::ms => grainSize; }
-                if( selected == "d" ) { Math.max(density - 1.0, 1.0) => density; }
-                if( selected == "p" ) { Math.max(position - 0.05, 0.0) => position; }
-                if( selected == "s" ) { Math.max(posSpray - 0.05, 0.0) => posSpray; }
+                if( selected == "g" ) { setGrainSize(grainSize - 10::ms); }
+                if( selected == "d" ) { setDensity(density - 1.0); }
+                if( selected == "p" ) { setPosition(position - 0.05); }
+                if( selected == "s" ) { setPosSpray(posSpray - 0.05); }
                 printControls();
             }
         }
