@@ -15,7 +15,8 @@ limiter.limit();
 // circular buffer
 // ** bypass limiter: change 'limiter =>' to 'input =>' on the next line **
 limiter => LiSa grainBuffer => blackhole;
-grainBuffer => dac;
+grainBuffer => Gain masterGain => dac;
+1.0 => masterGain.gain;
 4::second => grainBuffer.duration;
 1 => grainBuffer.record;
 
@@ -38,6 +39,7 @@ grainBuffer => dac;
 1::ms   => dur   DYNO_ATTACK_MIN;  50::ms   => dur   DYNO_ATTACK_MAX;
 50::ms  => dur   DYNO_RELEASE_MIN; 1000::ms => dur   DYNO_RELEASE_MAX;
 0.1     => float DYNO_THRESH_MIN;  1.0      => float DYNO_THRESH_MAX;
+0.0     => float MASTER_VOL_MIN;   2.0      => float MASTER_VOL_MAX;
 
 // setters — any UI layer should use these to enforce bounds
 fun void setGrainSize(dur val) {
@@ -63,6 +65,10 @@ fun void setDynoRelease(dur val) {
     Math.min(val/ms, DYNO_RELEASE_MAX/ms)::ms => limiterRelease;
     limiterRelease => limiter.releaseTime;
 }
+fun void setMasterVol(float val) {
+    Math.max(Math.min(val, MASTER_VOL_MAX), MASTER_VOL_MIN) => masterGain.gain;
+}
+
 fun void setDynoThresh(float val) {
     Math.max(Math.min(val, DYNO_THRESH_MAX), DYNO_THRESH_MIN) => limiterThresh;
     limiterThresh => limiter.thresh;
@@ -111,18 +117,19 @@ spork ~ spawner();
 // keyboard control
 // g = grainSize, d = density, p = position, s = posSpray
 // t = limiter thresh, a = limiter attack, r = limiter release
+// v = master volume
 // + / - to increase / decrease selected parameter
 "g" => string selected;
 
 fun void printControls() {
-    chout <= "\r  g:" + (grainSize/ms) + "ms d:" + density + " p:" + position + " s:" + posSpray + " | t:" + limiterThresh + " a:" + (limiterAttack/ms) + "ms r:" + (limiterRelease/ms) + "ms [" + selected + "]       ";
+    chout <= "\r  g:" + (grainSize/ms) + "ms d:" + density + " p:" + position + " s:" + posSpray + " | t:" + limiterThresh + " a:" + (limiterAttack/ms) + "ms r:" + (limiterRelease/ms) + "ms | v:" + masterGain.gain() + " [" + selected + "]       ";
     chout.flush();
 }
 
 fun void keyboard() {
     KBHit kb;
     kb.on();
-    <<< "controls: g=grainSize d=density p=position s=posSpray t=limiterThresh a=limiterAttack r=limiterRelease  +/- to change" >>>;
+    <<< "controls: g=grainSize d=density p=position s=posSpray t=limiterThresh a=limiterAttack r=limiterRelease v=masterVol  +/- to change" >>>;
     printControls();
 
     while( true ) {
@@ -141,6 +148,7 @@ fun void keyboard() {
             if( key == 116 ) { "t" => selected; printControls(); }
             if( key == 97  ) { "a" => selected; printControls(); }
             if( key == 114 ) { "r" => selected; printControls(); }
+            if( key == 118 ) { "v" => selected; printControls(); } // v
 
             // increase
             if( key == 43 ) {
@@ -151,6 +159,7 @@ fun void keyboard() {
                 if( selected == "t" ) { setDynoThresh(limiterThresh + 0.05); }
                 if( selected == "a" ) { setDynoAttack(limiterAttack + 5::ms); }
                 if( selected == "r" ) { setDynoRelease(limiterRelease + 50::ms); }
+                if( selected == "v" ) { setMasterVol(masterGain.gain() + 0.05); }
                 printControls();
             }
 
@@ -163,6 +172,7 @@ fun void keyboard() {
                 if( selected == "t" ) { setDynoThresh(limiterThresh - 0.05); }
                 if( selected == "a" ) { setDynoAttack(limiterAttack - 5::ms); }
                 if( selected == "r" ) { setDynoRelease(limiterRelease - 50::ms); }
+                if( selected == "v" ) { setMasterVol(masterGain.gain() - 0.05); }
                 printControls();
             }
         }
