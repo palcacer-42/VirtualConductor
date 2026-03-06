@@ -2,7 +2,7 @@
 // Fake mic input: loops a WAV file continuously
 // Replace SndBuf with adc when real mic is ready
 
-SndBuf input => dac;
+SndBuf input => blackhole;
 me.dir() + "/samples/tiorba.wav" => input.read;
 1 => input.loop;
 1.0 => input.rate;
@@ -14,9 +14,11 @@ limiter.limit();
 
 // circular buffer
 // ** bypass limiter: change 'limiter =>' to 'input =>' on the next line **
-limiter => LiSa grainBuffer => blackhole;
-grainBuffer => Gain masterGain => dac;
-1.0 => masterGain.gain;
+limiter => LiSa2 grainBuffer => blackhole;
+Gain masterL; Gain masterR;
+grainBuffer.chan(0) => masterL => dac.left;
+grainBuffer.chan(1) => masterR => dac.right;
+1.0 => masterL.gain => masterR.gain;
 4::second => grainBuffer.duration;
 1 => grainBuffer.record;
 
@@ -25,6 +27,7 @@ grainBuffer => Gain masterGain => dac;
 10.0 => float density;
 0.5 => float position;
 0.1 => float posSpray;
+0.3 => float panSpray;
 
 // limiter parameters
 5::ms   => dur   limiterAttack;
@@ -40,6 +43,7 @@ grainBuffer => Gain masterGain => dac;
 50::ms  => dur   DYNO_RELEASE_MIN; 1000::ms => dur   DYNO_RELEASE_MAX;
 0.1     => float DYNO_THRESH_MIN;  1.0      => float DYNO_THRESH_MAX;
 0.0     => float MASTER_VOL_MIN;   2.0      => float MASTER_VOL_MAX;
+0.0     => float PAN_SPRAY_MIN;    0.5      => float PAN_SPRAY_MAX;
 
 // setters — any UI layer should use these to enforce bounds
 fun void setGrainSize(dur val) {
@@ -65,8 +69,12 @@ fun void setDynoRelease(dur val) {
     Math.min(val/ms, DYNO_RELEASE_MAX/ms)::ms => limiterRelease;
     limiterRelease => limiter.releaseTime;
 }
+fun void setPanSpray(float val) {
+    Math.max(Math.min(val, PAN_SPRAY_MAX), PAN_SPRAY_MIN) => panSpray;
+}
+
 fun void setMasterVol(float val) {
-    Math.max(Math.min(val, MASTER_VOL_MAX), MASTER_VOL_MIN) => masterGain.gain;
+    Math.max(Math.min(val, MASTER_VOL_MAX), MASTER_VOL_MIN) => masterL.gain => masterR.gain;
 }
 
 fun void setDynoThresh(float val) {
@@ -83,6 +91,11 @@ fun void grain() {
     position + Math.random2f(-posSpray, posSpray) => float pos;
     if( pos < 0.0 ) 0.0 => pos;
     if( pos > 1.0 ) 1.0 => pos;
+
+    // Gaussian pan (sum of 3 uniforms ≈ bell curve), centered at 0.5
+    (Math.random2f(-1.0, 1.0) + Math.random2f(-1.0, 1.0) + Math.random2f(-1.0, 1.0)) / 3.0 => float panPos;
+    Math.max(0.0, Math.min(1.0, 0.5 + panPos * panSpray)) => panPos;
+    grainBuffer.pan(v, panPos);
 
     grainBuffer.rate(v, 1.0);
     grainBuffer.playPos(v, pos * grainBuffer.duration());
@@ -117,12 +130,12 @@ spork ~ spawner();
 // keyboard control
 // g = grainSize, d = density, p = position, s = posSpray
 // t = limiter thresh, a = limiter attack, r = limiter release
-// v = master volume
+// w = pan spray, v = master volume
 // + / - to increase / decrease selected parameter
 "g" => string selected;
 
 fun void printControls() {
-    chout <= "\r  g:" + (grainSize/ms) + "ms d:" + density + " p:" + position + " s:" + posSpray + " | t:" + limiterThresh + " a:" + (limiterAttack/ms) + "ms r:" + (limiterRelease/ms) + "ms | v:" + masterGain.gain() + " [" + selected + "]       ";
+    chout <= "\r  g:" + (grainSize/ms) + "ms d:" + density + " p:" + position + " s:" + posSpray + " w:" + panSpray + " | t:" + limiterThresh + " a:" + (limiterAttack/ms) + "ms r:" + (limiterRelease/ms) + "ms | v:" + masterL.gain() + " [" + selected + "]       ";
     chout.flush();
 }
 
@@ -148,6 +161,7 @@ fun void keyboard() {
             if( key == 116 ) { "t" => selected; printControls(); }
             if( key == 97  ) { "a" => selected; printControls(); }
             if( key == 114 ) { "r" => selected; printControls(); }
+            if( key == 119 ) { "w" => selected; printControls(); } // w
             if( key == 118 ) { "v" => selected; printControls(); } // v
 
             // increase
@@ -159,7 +173,8 @@ fun void keyboard() {
                 if( selected == "t" ) { setDynoThresh(limiterThresh + 0.05); }
                 if( selected == "a" ) { setDynoAttack(limiterAttack + 5::ms); }
                 if( selected == "r" ) { setDynoRelease(limiterRelease + 50::ms); }
-                if( selected == "v" ) { setMasterVol(masterGain.gain() + 0.05); }
+                if( selected == "w" ) { setPanSpray(panSpray + 0.05); }
+                if( selected == "v" ) { setMasterVol(masterL.gain() + 0.05); }
                 printControls();
             }
 
@@ -172,7 +187,8 @@ fun void keyboard() {
                 if( selected == "t" ) { setDynoThresh(limiterThresh - 0.05); }
                 if( selected == "a" ) { setDynoAttack(limiterAttack - 5::ms); }
                 if( selected == "r" ) { setDynoRelease(limiterRelease - 50::ms); }
-                if( selected == "v" ) { setMasterVol(masterGain.gain() - 0.05); }
+                if( selected == "w" ) { setPanSpray(panSpray - 0.05); }
+                if( selected == "v" ) { setMasterVol(masterL.gain() - 0.05); }
                 printControls();
             }
         }
