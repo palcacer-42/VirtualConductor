@@ -5,11 +5,22 @@
 ## Architecture (current)
 
 ```
-SndBuf (tiorba.wav) → Gain inputGain → dac          (dry monitor, key i)
-SndBuf → Dyno limiter → LiSa2 grainBuffer → blackhole (recording into buffer)
+SndBuf (tiorba.wav) → Gain inputGain → dac                    (dry monitor, key i)
+SndBuf → Dyno limiter → LiSa2 grainBuffer → blackhole          (recording into buffer)
 
-LiSa2.chan(0) → Gain masterL → dac.left              (granular out, key v)
-LiSa2.chan(1) → Gain masterR → dac.right
+── Dry granular path ──────────────────────────────────────────
+LiSa2.chan(0) → Gain dryL ──────────────────┐
+LiSa2.chan(1) → Gain dryR ──────────────────┼──┐
+                                             │  │
+── Ping-pong delay path ───────────────────── │  │
+LiSa2.chan(0) → DelayL delL ←─ xfbL ←─ delR │  │
+LiSa2.chan(1) → DelayR delR ←─ xfbR ←─ delL │  │
+delL → Gain wetL ───────────────────────────┘  │
+delR → Gain wetR ──────────────────────────────┘
+                                             │  │
+── Reverb + Master ─────────────────────────┘  │
+dryL + wetL → NRev reverbL → Gain masterL → dac.left   (key x = reverb mix, key v = master)
+dryR + wetR → NRev reverbR → Gain masterR → dac.right
 ```
 
 > Replace `SndBuf` with `adc` for real mic when ready.
@@ -18,6 +29,30 @@ Three components:
 1. **Circular buffer** — `LiSa2` continuously records live input (4 seconds)
 2. **Scheduler** — decides *when* to fire a grain (Poisson process)
 3. **Grain** — reads a window from the buffer, applies envelope, pans, pitches, outputs
+
+---
+
+## Signal Flow Detail
+
+- **Dry path**: granular output goes directly to reverb (no delay)
+- **Delay path**: granular output feeds a stereo ping-pong delay with cross-feedback, then merges into reverb
+- **Reverb**: `NRev` (one per channel, mono in / stereo out) processes both dry and delay signals together before master volume
+- **Master**: final stereo gain before `dac`
+
+---
+
+## Ping-Pong Delay
+
+Stereo ping-pong delay with cross-feedback:
+
+```
+delL output → xfbR → feeds back into delR input
+delR output → xfbL → feeds back into delL input
+```
+
+- `wetL`/`wetR` gains control the delay mix (0 = no delay, 1 = full delay)
+- `dryL`/`dryR` gains are the complementary dry side: `dry = 1.0 - delayMix`
+- Cross-feedback gain = `delayFeedback`
 
 ---
 
@@ -60,7 +95,13 @@ amp[i] = 0.5 * (1 - cos(2π * i / N))
 
 `LiSa2` supports per-voice stereo panning via `grainBuffer.pan(voice, value)` where `0.0` = full left, `0.5` = center, `1.0` = full right.
 
-Each grain gets a **Gaussian random pan** (sum of 3 uniforms / 3 ≈ bell curve), centered at 0.5, scaled by `panSpray`. More grains cluster near center, fewer at edges — cohesive but wide stereo image.
+Each grain gets a **uniform linear random pan** centered at 0.5, scaled by `panSpray`:
+
+```
+pan = random(0.5 - panSpray, 0.5 + panSpray)
+```
+
+At `panSpray = 0.0` all grains are center. At `panSpray = 0.5` grains spread full stereo.
 
 **Important:** stereo master volume uses two separate `Gain` UGens (masterL/masterR) connected to `dac.left`/`dac.right`. A single mono `Gain` between `LiSa2` and `dac` would collapse stereo to mono.
 
@@ -92,26 +133,42 @@ All pitch parameters accumulate into `totalSemitones` per grain, then one `Math.
 
 ---
 
+## Reverb — NRev
+
+Two `NRev` instances (one per channel) sit between the merged dry+delay signal and the master gain. This means reverb processes **everything** — direct granular and delayed granular — together.
+
+- `reverbMix = 0.0` → dry (reverb off)
+- `reverbMix = 1.0` → full wet
+- NRev is STK-based, built into ChucK, no install needed, low CPU cost
+- T60 decay is fixed internally (~1 second); only `mix` is exposed
+
+---
+
 ## Parameters
 
-| Key | Parameter     | Description                                              | Range         |
-|-----|---------------|----------------------------------------------------------|---------------|
-| `g` | `grainSize`   | Length of each grain                                     | 10–500ms      |
-| `d` | `density`     | Average grains per second                                | 5–50          |
-| `p` | `position`    | Read position in buffer (0=oldest, 1=now)                | 0–1           |
-| `s` | `posSpray`    | Random scatter around position                           | 0–0.5         |
-| `w` | `panSpray`    | Stereo spread width (Gaussian)                           | 0–0.5         |
-| `u` | `octaveUp`    | Probability grain jumps +1 octave                        | 0–1           |
-| `o` | `octaveDown`  | Probability grain jumps -1 octave (else if octaveUp)     | 0–1           |
-| `k` | `pitchRange`  | Max semitone deviation per grain                         | 0–12st        |
-| `j` | `pitchProb`   | Probability pitch spray is applied                       | 0–1           |
-| `f` | `fineRange`   | Max fine detune per grain                                | 0–100ct       |
-| `e` | `fineProb`    | Probability fine detune is applied                       | 0–1           |
-| `t` | `limiterThresh` | Dyno limiter threshold                                 | 0.1–1.0       |
-| `a` | `limiterAttack` | Dyno limiter attack time                               | 1–50ms        |
-| `r` | `limiterRelease` | Dyno limiter release time                             | 50–1000ms     |
-| `i` | `inputGain`   | Dry input monitor volume                                 | 0–1           |
-| `v` | `masterVol`   | Granular chain master volume                             | 0–2           |
+| Key | Parameter        | Description                                              | Range      |
+|-----|------------------|----------------------------------------------------------|------------|
+| `g` | `grainSize`      | Length of each grain                                     | 10–500ms   |
+| `d` | `density`        | Average grains per second                                | 5–50       |
+| `p` | `position`       | Read position in buffer (0=oldest, 1=now)                | 0–1        |
+| `s` | `posSpray`       | Random scatter around position                           | 0–0.5      |
+| `w` | `panSpray`       | Stereo spread width (linear uniform)                     | 0–0.5      |
+| `u` | `octaveUp`       | Probability grain jumps +1 octave                        | 0–1        |
+| `o` | `octaveDown`     | Probability grain jumps -1 octave (else if octaveUp)     | 0–1        |
+| `k` | `pitchRange`     | Max semitone deviation per grain                         | 0–12st     |
+| `j` | `pitchProb`      | Probability pitch spray is applied                       | 0–1        |
+| `f` | `fineRange`      | Max fine detune per grain                                | 0–100ct    |
+| `e` | `fineProb`       | Probability fine detune is applied                       | 0–1        |
+| `t` | `limiterThresh`  | Dyno limiter threshold                                   | 0.1–1.0    |
+| `a` | `limiterAttack`  | Dyno limiter attack time                                 | 1–50ms     |
+| `r` | `limiterRelease` | Dyno limiter release time                                | 50–1000ms  |
+| `l` | `delayTimeL`     | Left channel delay time                                  | 50–1000ms  |
+| `n` | `delayTimeR`     | Right channel delay time                                 | 50–1000ms  |
+| `b` | `delayFeedback`  | Ping-pong cross-feedback amount                          | 0–0.95     |
+| `m` | `delayMix`       | Delay wet/dry blend                                      | 0–1        |
+| `x` | `reverbMix`      | Reverb wet/dry blend                                     | 0–1        |
+| `i` | `inputGain`      | Dry input monitor volume                                 | 0–1        |
+| `v` | `masterVol`      | Granular chain master volume                             | 0–2        |
 
 ---
 
@@ -122,7 +179,6 @@ Three things together:
 2. **High posSpray** (grains read from scattered buffer positions)
 3. **Small pitchSpray / fineSpray** (subtle random pitch per grain)
 
-This is what Ableton Granulator Cloud Mode and Mutable Clouds do.
 
 ---
 
@@ -136,7 +192,4 @@ This is what Ableton Granulator Cloud Mode and Mutable Clouds do.
 
 ## Still TODO
 
-- `freeze` — toggle `grainBuffer.record(0/1)`, key `z` (f is taken by fineRange)
-- Dry/wet mix — blend input vs granular output
-- Reverb — on granular output only (`LiSa2 → NRev → dac`), keep input dry
 - Replace `SndBuf` with `adc` for real mic input

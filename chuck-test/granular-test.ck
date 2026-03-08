@@ -33,12 +33,15 @@ Gain dryL, dryR, wetL, wetR;
 0.0 => wetL.gain => wetR.gain;
 
 // master
+NRev reverbL, reverbR;
+0.0 => reverbL.mix => reverbR.mix;
+
 Gain masterL, masterR;
 1.0 => masterL.gain => masterR.gain;
 
 // dry path
-grainBuffer.chan(0) => dryL => masterL => dac.left;
-grainBuffer.chan(1) => dryR => masterR => dac.right;
+grainBuffer.chan(0) => dryL => reverbL => masterL => dac.left;
+grainBuffer.chan(1) => dryR => reverbR => masterR => dac.right;
 
 // wet path: grainBuffer into delays
 grainBuffer.chan(0) => delL;
@@ -48,9 +51,9 @@ grainBuffer.chan(1) => delR;
 delL => xfbR => delR;
 delR => xfbL => delL;
 
-// wet output into master
-delL => wetL => masterL;
-delR => wetR => masterR;
+// wet output into reverb
+delL => wetL => reverbL;
+delR => wetR => reverbR;
 4::second => grainBuffer.duration;
 1 => grainBuffer.record;
 
@@ -64,6 +67,7 @@ delR => wetR => masterR;
 400::ms => dur delayTimeR;
 0.5 => float delayFeedback;
 0.0 => float delayMix;
+0.0 => float reverbMix;
 0.0 => float octaveUp;
 0.0 => float octaveDown;
 0.0 => float fineRange;
@@ -90,6 +94,7 @@ delR => wetR => masterR;
 50::ms  => dur   DELAY_TIME_MIN;   1000::ms => dur   DELAY_TIME_MAX;
 0.0     => float DELAY_FB_MIN;     0.95     => float DELAY_FB_MAX;
 0.0     => float DELAY_MIX_MIN;    1.0      => float DELAY_MIX_MAX;
+0.0     => float REVERB_MIX_MIN;   1.0      => float REVERB_MIX_MAX;
 0.0     => float OCTAVE_UP_MIN;    1.0      => float OCTAVE_UP_MAX;
 0.0     => float OCTAVE_DOWN_MIN;  1.0      => float OCTAVE_DOWN_MAX;
 0.0     => float FINE_RANGE_MIN;   100.0    => float FINE_RANGE_MAX;
@@ -143,6 +148,11 @@ fun void setDelayMix(float val) {
     Math.max(Math.min(val, DELAY_MIX_MAX), DELAY_MIX_MIN) => delayMix;
     1.0 - delayMix => dryL.gain => dryR.gain;
     delayMix => wetL.gain => wetR.gain;
+}
+
+fun void setReverbMix(float val) {
+    Math.max(Math.min(val, REVERB_MIX_MAX), REVERB_MIX_MIN) => reverbMix;
+    reverbMix => reverbL.mix => reverbR.mix;
 }
 
 fun void setOctaveUp(float val) {
@@ -241,19 +251,20 @@ spork ~ spawner();
 // PITCH:   u=octaveUp   o=octaveDown  k=pitchRange  j=pitchProbability  f=fineRange(cents)  e=fineProbability
 // LIMITER: t=thresh     a=attack   r=release
 // DELAY:   l=delayTimeL  n=delayTimeR  b=feedback  m=mix
+// REVERB:  x=reverbMix
 // OUTPUT:  i=inputGain  v=masterVol
 // + / - to change selected  |  q = quit
 "g" => string selected;
 
 fun void printControls() {
-    chout <= "\r  g:" + ((grainSize/ms)$int) + "ms d:" + (density$int) + " p:" + ((position*100)$int) + " s:" + ((posSpray*100)$int) + " w:" + ((panSpray*100)$int) + " | u:" + ((octaveUp*100)$int) + " o:" + ((octaveDown*100)$int) + " k:" + (pitchRange$int) + "st j:" + ((pitchProb*100)$int) + " f:" + (fineRange$int) + "ct e:" + ((fineProb*100)$int) + " | t:" + ((limiterThresh*100)$int) + " a:" + ((limiterAttack/ms)$int) + "ms r:" + ((limiterRelease/ms)$int) + "ms | l:" + ((delayTimeL/ms)$int) + "ms n:" + ((delayTimeR/ms)$int) + "ms b:" + ((delayFeedback*100)$int) + " m:" + ((delayMix*100)$int) + " | i:" + ((inputGain.gain()*100)$int) + " v:" + ((masterL.gain()*100)$int) + " [" + selected + "]       ";
+    chout <= "\r  g:" + ((grainSize/ms)$int) + "ms d:" + (density$int) + " p:" + ((position*100)$int) + " s:" + ((posSpray*100)$int) + " w:" + ((panSpray*100)$int) + " | u:" + ((octaveUp*100)$int) + " o:" + ((octaveDown*100)$int) + " k:" + (pitchRange$int) + "st j:" + ((pitchProb*100)$int) + " f:" + (fineRange$int) + "ct e:" + ((fineProb*100)$int) + " | t:" + ((limiterThresh*100)$int) + " a:" + ((limiterAttack/ms)$int) + "ms r:" + ((limiterRelease/ms)$int) + "ms | l:" + ((delayTimeL/ms)$int) + "ms n:" + ((delayTimeR/ms)$int) + "ms b:" + ((delayFeedback*100)$int) + " m:" + ((delayMix*100)$int) + " | x:" + ((reverbMix*100)$int) + " | i:" + ((inputGain.gain()*100)$int) + " v:" + ((masterL.gain()*100)$int) + " [" + selected + "]       ";
     chout.flush();
 }
 
 fun void keyboard() {
     KBHit kb;
     kb.on();
-    <<< "GRAIN: g=grainSize d=density p=position s=posSpray w=panSpray | PITCH: u=octaveUp o=octaveDown k=pitchRange j=pitchProb f=fineRange(cents) e=fineProb | LIMITER: t=thresh a=attack r=release | DELAY: l=delayTimeL n=delayTimeR b=feedback m=mix | OUTPUT: i=inputGain v=masterVol | +/- to change | q=quit" >>>;
+    <<< "GRAIN: g=grainSize d=density p=position s=posSpray w=panSpray | PITCH: u=octaveUp o=octaveDown k=pitchRange j=pitchProb f=fineRange(cents) e=fineProb | LIMITER: t=thresh a=attack r=release | DELAY: l=delayTimeL n=delayTimeR b=feedback m=mix | REVERB: x=mix | OUTPUT: i=inputGain v=masterVol | +/- to change | q=quit" >>>;
     printControls();
 
     while( true ) {
@@ -283,6 +294,7 @@ fun void keyboard() {
             if( key == 110 ) { "n" => selected; printControls(); } // n
             if( key == 98  ) { "b" => selected; printControls(); } // b
             if( key == 109 ) { "m" => selected; printControls(); } // m
+            if( key == 120 ) { "x" => selected; printControls(); } // x
             if( key == 105 ) { "i" => selected; printControls(); } // i
             if( key == 118 ) { "v" => selected; printControls(); } // v
 
@@ -306,6 +318,7 @@ fun void keyboard() {
                 if( selected == "n" ) { setDelayTimeR(delayTimeR + 25::ms); }
                 if( selected == "b" ) { setDelayFeedback(delayFeedback + 0.05); }
                 if( selected == "m" ) { setDelayMix(delayMix + 0.05); }
+                if( selected == "x" ) { setReverbMix(reverbMix + 0.05); }
                 if( selected == "i" ) { setInputGain(inputGain.gain() + 0.05); }
                 if( selected == "v" ) { setMasterVol(masterL.gain() + 0.05); }
                 printControls();
@@ -331,6 +344,7 @@ fun void keyboard() {
                 if( selected == "n" ) { setDelayTimeR(delayTimeR - 25::ms); }
                 if( selected == "b" ) { setDelayFeedback(delayFeedback - 0.05); }
                 if( selected == "m" ) { setDelayMix(delayMix - 0.05); }
+                if( selected == "x" ) { setReverbMix(reverbMix - 0.05); }
                 if( selected == "i" ) { setInputGain(inputGain.gain() - 0.05); }
                 if( selected == "v" ) { setMasterVol(masterL.gain() - 0.05); }
                 printControls();
