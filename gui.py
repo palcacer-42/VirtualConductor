@@ -9,6 +9,7 @@ from imgui.integrations.glfw import GlfwRenderer
 import OpenGL.GL as gl
 
 from tracker import MIDI_CC_OPTIONS
+from gesture_collector import GestureCollector
 
 
 class ConductorGUI:
@@ -39,6 +40,12 @@ class ConductorGUI:
         self.rcc_index = 4
         self.cc_labels = [str(cc) for cc in MIDI_CC_OPTIONS]
 
+        # --- Gesture Collection State ---
+        self.gesture_collector = GestureCollector()
+        self.gesture_label_buf = ""
+        self.gesture_train_msg = ""
+        self._tracker_recognizer = None
+
     def _create_texture(self):
         texture_id = gl.glGenTextures(1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
@@ -55,6 +62,12 @@ class ConductorGUI:
             gl.GL_RGB, gl.GL_UNSIGNED_BYTE,
             frame_rgb
         )
+
+    def set_recognizer(self, recognizer):
+        self._tracker_recognizer = recognizer
+
+    def _get_tracker_recognizer(self):
+        return self._tracker_recognizer
 
     def should_close(self):
         return glfw.window_should_close(self.window)
@@ -162,6 +175,74 @@ class ConductorGUI:
             imgui.text(f"  Mouth: {m_x:.2f}, {m_y:.2f}")
         else:
             imgui.text("  No Detection")
+
+        imgui.end()
+
+        # --- Gesture Panel ---
+        imgui.begin("Gestures")
+
+        # Live recognition display
+        rh_gesture = results.get("gesture", {}).get("right_hand")
+        rh_conf = results.get("gesture_confidence", {}).get("right_hand", 0.0)
+        if rh_gesture:
+            imgui.text_colored(f"Right Hand: {rh_gesture} ({int(rh_conf * 100)}%)", 0.4, 1.0, 0.4)
+        else:
+            imgui.text("Right Hand: ---")
+
+        imgui.separator()
+
+        # Collection controls
+        imgui.text("Collect Data")
+        changed, self.gesture_label_buf = imgui.input_text("Label", self.gesture_label_buf, 64)
+
+        status = self.gesture_collector.get_status()
+        if status["recording"]:
+            imgui.text_colored(f"Recording: {status['sample_count']} samples", 1.0, 0.3, 0.3)
+            if imgui.button("Stop"):
+                count = self.gesture_collector.stop_recording()
+                self.gesture_train_msg = f"Saved {count} samples"
+        else:
+            label = self.gesture_label_buf.strip()
+            if label and results.get("right_hand"):
+                if imgui.button("Record"):
+                    self.gesture_collector.start_recording(label, "right_hand")
+                    self.gesture_train_msg = ""
+            else:
+                imgui.text_disabled("Enter label + show right hand")
+
+        # Record samples each frame while recording
+        if status["recording"] and results.get("right_hand"):
+            self.gesture_collector.record_sample(results["right_hand"])
+
+        imgui.spacing()
+
+        # Train button
+        if imgui.button("Train Model"):
+            recognizer = self._get_tracker_recognizer()
+            if recognizer:
+                success, msg = recognizer.train("right_hand")
+                self.gesture_train_msg = msg
+            else:
+                self.gesture_train_msg = "Trainer not available"
+
+        if self.gesture_train_msg:
+            imgui.text(self.gesture_train_msg)
+
+        imgui.spacing()
+        imgui.separator()
+
+        # Dataset summary
+        summary = self.gesture_collector.get_summary()
+        if summary:
+            imgui.text("Collected gestures:")
+            to_delete = None
+            for (source, label), count in sorted(summary.items()):
+                imgui.text(f"  {source}/{label}: {count}")
+                imgui.same_line()
+                if imgui.small_button(f"X##{source}_{label}"):
+                    to_delete = (label, source)
+            if to_delete:
+                self.gesture_collector.delete_gesture(*to_delete)
 
         imgui.end()
 

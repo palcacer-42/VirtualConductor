@@ -9,6 +9,8 @@ import numpy as np
 import os
 from midi_controller import MidiController
 from osc_controller import OscController
+from gesture_collector import normalize_hand
+from gesture_recognizer import GestureRecognizer
 
 # Configuration
 MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
@@ -35,6 +37,9 @@ class HolisticTracker:
 
         # Initialize OSC
         self.osc = OscController()
+
+        # Initialize Gesture Recognizer
+        self.gesture_recognizer = GestureRecognizer()
 
     def _init_face_landmarker(self):
         options = vision.FaceLandmarkerOptions(
@@ -95,7 +100,9 @@ class HolisticTracker:
             "pose": pose_result if (pose_result and pose_result.pose_landmarks) else None,
             "left_hand": None,
             "right_hand": None,
-            "midi_values": {"left": 0, "right": 0}
+            "midi_values": {"left": 0, "right": 0},
+            "gesture": {"right_hand": None, "left_hand": None},
+            "gesture_confidence": {"right_hand": 0.0, "left_hand": 0.0}
         }
 
         # Process hands to identify Left vs Right
@@ -129,6 +136,19 @@ class HolisticTracker:
             for name, idx in fingers:
                 pt = holistic_data["right_hand"][idx]
                 self.osc.send_vector(f"/right-hand/{name}", pt.x, pt.y, pt.z)
+
+        # Gesture recognition
+        if holistic_data["right_hand"]:
+            normalized = normalize_hand(holistic_data["right_hand"])
+            label, conf = self.gesture_recognizer.predict(normalized, "right_hand")
+            holistic_data["gesture"]["right_hand"] = label
+            holistic_data["gesture_confidence"]["right_hand"] = conf
+
+        if holistic_data["left_hand"]:
+            normalized = normalize_hand(holistic_data["left_hand"])
+            label, conf = self.gesture_recognizer.predict(normalized, "left_hand")
+            holistic_data["gesture"]["left_hand"] = label
+            holistic_data["gesture_confidence"]["left_hand"] = conf
 
         return holistic_data
 

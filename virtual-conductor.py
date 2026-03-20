@@ -26,6 +26,7 @@ def main():
 
     # --- Tracker ---
     tracker = HolisticTracker()
+    gui.set_recognizer(tracker.gesture_recognizer)
     print("Virtual Conductor Started: Face + Hands + Pose")
 
     # Check for black frames (macOS camera permission issue)
