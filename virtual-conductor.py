@@ -312,6 +312,12 @@ def main():
 
     # --- Video Texture ---
     video_texture = create_video_texture()
+    camera_warning = None
+
+    # Check for black frames (macOS camera permission issue)
+    ret, test_frame = cap.read()
+    if ret and test_frame is not None and test_frame.max() == 0:
+        camera_warning = "Camera returns black frames. On macOS, grant camera permission in System Settings > Privacy > Camera."
 
     try:
         while not glfw.window_should_close(window):
@@ -320,7 +326,23 @@ def main():
 
             success, frame = cap.read()
             if not success:
+                # Still render ImGui so the warning is visible
+                imgui.new_frame()
+                imgui.begin("Camera Feed")
+                imgui.text("No camera frame available.")
+                if camera_warning:
+                    imgui.text_colored(camera_warning, 1.0, 0.3, 0.3)
+                imgui.end()
+                imgui.render()
+                gl.glClearColor(0.1, 0.1, 0.1, 1.0)
+                gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                impl.render(imgui.get_draw_data())
+                glfw.swap_buffers(window)
                 continue
+
+            # Clear warning once we get a non-black frame
+            if camera_warning and frame.max() > 0:
+                camera_warning = None
 
             # Flip for mirror view
             frame = cv2.flip(frame, 1)
@@ -348,6 +370,8 @@ def main():
 
             # Video Window
             imgui.begin("Camera Feed")
+            if camera_warning:
+                imgui.text_colored(camera_warning, 1.0, 0.3, 0.3)
             imgui.image(video_texture, vid_w, vid_h)
             imgui.end()
 
