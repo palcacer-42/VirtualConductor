@@ -14,6 +14,10 @@ from midi_controller import MidiController
 from osc_controller import OscController
 
 import os
+import glfw
+import imgui
+from imgui.integrations.glfw import GlfwRenderer
+import OpenGL.GL as gl
 
 # Configuration
 MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
@@ -248,244 +252,197 @@ def draw_landmarks(image, results):
 
     return annotated_image
 
+def create_video_texture():
+    """Create an OpenGL texture for the video feed."""
+    texture_id = gl.glGenTextures(1)
+    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+    return texture_id
+
+def update_texture(texture_id, frame_rgb):
+    """Upload an RGB frame to an existing OpenGL texture."""
+    h, w = frame_rgb.shape[:2]
+    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
+    gl.glTexImage2D(
+        gl.GL_TEXTURE_2D, 0, gl.GL_RGB,
+        w, h, 0,
+        gl.GL_RGB, gl.GL_UNSIGNED_BYTE,
+        frame_rgb
+    )
+
 def main():
+    # --- Camera ---
     cap = cv2.VideoCapture(CAMERA_ID)
     if not cap.isOpened():
         print("Error opening camera")
-        # Try fallback
         cap = cv2.VideoCapture(1)
         if not cap.isOpened():
             print("Failed to open camera 0 or 1. Please check permissions.")
             return
 
+    # --- GLFW + ImGui Init ---
+    if not glfw.init():
+        print("Failed to initialize GLFW")
+        return
+
+    window = glfw.create_window(1100, 700, "Virtual Conductor", None, None)
+    if not window:
+        glfw.terminate()
+        print("Failed to create GLFW window")
+        return
+
+    glfw.make_context_current(window)
+    glfw.swap_interval(1)
+
+    imgui.create_context()
+    impl = GlfwRenderer(window)
+
+    # --- Tracker ---
     tracker = HolisticTracker()
     print("Holistic Tracker Started: Face + Hands + Pose")
-    
-    # Control Window Setup
-    cv2.namedWindow('Controls')
-    cv2.resizeWindow('Controls', 400, 200) # Ensure window is large enough
-    
-    # Main Window Setup
-    cv2.namedWindow('Virtual Conductor', cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('Virtual Conductor', 800, 600)
-    
-    # Button Configuration
-    # Types: 'toggle' or 'cycle'
-    buttons = {
-        "Face":  {"type": "toggle", "state": True, "rect": (10, 20, 80, 40)},
-        "Hands": {"type": "toggle", "state": True, "rect": (100, 20, 80, 40)},
-        "Pose":  {"type": "toggle", "state": True, "rect": (190, 20, 80, 40)},
-        
-        # MIDI Assignment Buttons (Cycle)
-        "L-CC":  {"type": "cycle", "index": 0, "rect": (10, 80, 100, 50), "value_out": 0},
-        "R-CC":  {"type": "cycle", "index": 4, "rect": (120, 80, 100, 50), "value_out": 0} # Start at CC 11 (index 4)
-    }
-    
-    def mouse_callback(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            for name, btn in buttons.items():
-                bx, by, bw, bh = btn["rect"]
-                if bx <= x <= bx + bw and by <= y <= by + bh:
-                    if btn["type"] == "toggle":
-                        btn["state"] = not btn["state"]
-                    elif btn["type"] == "cycle":
-                        btn["index"] = (btn["index"] + 1) % len(MIDI_XX_OPTIONS)
-                        
-                    print(f"Clicked {name}")
 
-    cv2.setMouseCallback('Controls', mouse_callback)
+    # --- State ---
+    active_face = True
+    active_hands = True
+    active_pose = True
+    lcc_index = 0
+    rcc_index = 4
+    cc_labels = [str(cc) for cc in MIDI_XX_OPTIONS]
 
-    def draw_controls(buttons):
-        # Create black background (now taller for more controls)
-        control_img = np.zeros((150, 400, 3), dtype=np.uint8)
-        
-        for name, btn in buttons.items():
-            bx, by, bw, bh = btn["rect"]
-            
-            # Button Logic
-            if btn["type"] == "toggle":
-                state = btn["state"]
-                color = (0, 255, 0) if state else (100, 100, 100)
-                label = name
-                text_color = (0, 0, 0) if state else (255, 255, 255)
-                
-            elif btn["type"] == "cycle":
-                cc_num = MIDI_XX_OPTIONS[btn["index"]]
-                color = (255, 100, 0) # Orange for setting
-                label = f"{name}: {cc_num}"
-                text_color = (255, 255, 255)
-                
-                # Draw Value Bar at bottom of button
-                val_norm = btn["value_out"] / 127.0
-                bar_h = int(bh * val_norm)
-                if bar_h > 0:
-                    cv2.rectangle(control_img, (bx, by + bh - bar_h), (bx + bw, by + bh), (255, 150, 50), -1)
-            
-            # Draw Button Background
-            cv2.rectangle(control_img, (bx, by), (bx + bw, by + bh), color, -1)
-            
-            # Draw Outer Border
-            cv2.rectangle(control_img, (bx, by), (bx + bw, by + bh), (200, 200, 200), 1)
-            
-            # Draw Text
-            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-            text_x = bx + (bw - text_size[0]) // 2
-            text_y = by + (bh + text_size[1]) // 2
-            cv2.putText(control_img, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
-            
-        return control_img
-    
+    # --- Video Texture ---
+    video_texture = create_video_texture()
+
     try:
-        windows_positioned = False
-        while cap.isOpened():
-            success, frame = cap.read()
-            if not success: continue
+        while not glfw.window_should_close(window):
+            glfw.poll_events()
+            impl.process_inputs()
 
-            # Update Active Modules from Button States
-            active_modules = {
-                "face": buttons["Face"]["state"],
-                "hands": buttons["Hands"]["state"],
-                "pose": buttons["Pose"]["state"]
-            }
-            
-            # Get Current CC Settings
-            cc_settings = {
-                "left": MIDI_XX_OPTIONS[buttons["L-CC"]["index"]],
-                "right": MIDI_XX_OPTIONS[buttons["R-CC"]["index"]]
-            }
+            success, frame = cap.read()
+            if not success:
+                continue
 
             # Flip for mirror view
             frame = cv2.flip(frame, 1)
-            results = tracker.process_frame(frame, int(time.time() * 1000), active_modules, cc_settings)
-            
-            # Update Button UI with output values for visualization
-            buttons["L-CC"]["value_out"] = results["midi_values"]["left"]
-            buttons["R-CC"]["value_out"] = results["midi_values"]["right"]
-            
-            # Visualization
-            annotated_frame = draw_landmarks(frame, results)
-            
-            # --- Data Info Overlay ---
-            # Constants for layout
-            col_width = 230
-            line_height = 28
-            start_x = 10
-            start_y = 60
-            font_scale = 0.7
-            
-            # Data Containers
-            left_lines = ["--- LEFT HAND ---"]
-            right_lines = ["--- RIGHT HAND ---"]
-            face_lines = ["--- FACE ---"]
 
-            # Finger Names for loop
+            active_modules = {
+                "face": active_face,
+                "hands": active_hands,
+                "pose": active_pose
+            }
+            cc_settings = {
+                "left": MIDI_XX_OPTIONS[lcc_index],
+                "right": MIDI_XX_OPTIONS[rcc_index]
+            }
+
+            results = tracker.process_frame(frame, int(time.time() * 1000), active_modules, cc_settings)
+
+            # Draw landmarks on frame and upload as texture
+            annotated_frame = draw_landmarks(frame, results)
+            frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            update_texture(video_texture, frame_rgb)
+            vid_h, vid_w = frame_rgb.shape[:2]
+
+            # --- ImGui Frame ---
+            imgui.new_frame()
+
+            # Video Window
+            imgui.begin("Camera Feed")
+            imgui.image(video_texture, vid_w, vid_h)
+            imgui.end()
+
+            # Controls Window
+            imgui.begin("Controls")
+
+            # Tracking toggles
+            _, active_face = imgui.checkbox("Face", active_face)
+            imgui.same_line()
+            _, active_hands = imgui.checkbox("Hands", active_hands)
+            imgui.same_line()
+            _, active_pose = imgui.checkbox("Pose", active_pose)
+
+            imgui.separator()
+
+            # MIDI CC selectors
+            imgui.text("MIDI CC Assignment")
+            imgui.set_next_item_width(120)
+            _, lcc_index = imgui.combo("L-CC", lcc_index, cc_labels)
+            imgui.same_line()
+            imgui.set_next_item_width(120)
+            _, rcc_index = imgui.combo("R-CC", rcc_index, cc_labels)
+
+            # MIDI value bars
+            left_val = results["midi_values"]["left"] / 127.0
+            right_val = results["midi_values"]["right"] / 127.0
+            imgui.progress_bar(left_val, (120, 14), f"L: {results['midi_values']['left']}")
+            imgui.same_line()
+            imgui.progress_bar(right_val, (120, 14), f"R: {results['midi_values']['right']}")
+
+            imgui.end()
+
+            # Data Window
+            imgui.begin("Tracking Data")
+
             digits = [("Thumb", 4), ("Index", 8), ("Mid", 12), ("Ring", 16), ("Pinky", 20)]
 
-            # 1. Left Hand Data
-            if not active_modules["hands"]:
-                left_lines.append("[OFF]")
+            # Left Hand
+            imgui.text_colored("LEFT HAND", 0.4, 0.8, 1.0)
+            if not active_hands:
+                imgui.text("[OFF]")
             elif results["left_hand"]:
                 for name, idx in digits:
                     pt = results["left_hand"][idx]
-                    left_lines.append(f"{name}: {pt.x:.2f}, {pt.y:.2f}")
+                    imgui.text(f"  {name}: {pt.x:.2f}, {pt.y:.2f}")
             else:
-                left_lines.append("No Detection")
+                imgui.text("  No Detection")
 
-            # 2. Right Hand Data
-            if not active_modules["hands"]:
-                right_lines.append("[OFF]")
+            imgui.spacing()
+
+            # Right Hand
+            imgui.text_colored("RIGHT HAND", 0.4, 1.0, 0.4)
+            if not active_hands:
+                imgui.text("[OFF]")
             elif results["right_hand"]:
                 for name, idx in digits:
                     pt = results["right_hand"][idx]
-                    right_lines.append(f"{name}: {pt.x:.2f}, {pt.y:.2f}")
+                    imgui.text(f"  {name}: {pt.x:.2f}, {pt.y:.2f}")
             else:
-                right_lines.append("No Detection")
-                
-            # 3. Face Data
-            if not active_modules["face"]:
-                face_lines.append("[OFF]")
+                imgui.text("  No Detection")
+
+            imgui.spacing()
+
+            # Face
+            imgui.text_colored("FACE", 1.0, 1.0, 0.4)
+            if not active_face:
+                imgui.text("[OFF]")
             elif results["face"]:
                 face = results["face"].face_landmarks[0]
-                # Nose Tip (1)
                 nose = face[1]
-                face_lines.append(f"Nose: {nose.x:.2f}, {nose.y:.2f}")
-                # Eyes (33=L, 263=R)
+                imgui.text(f"  Nose: {nose.x:.2f}, {nose.y:.2f}")
                 eye_l = face[33]
                 eye_r = face[263]
-                face_lines.append(f"L-Eye: {eye_l.x:.2f}, {eye_l.y:.2f}")
-                face_lines.append(f"R-Eye: {eye_r.x:.2f}, {eye_r.y:.2f}")
-                # Mouth
+                imgui.text(f"  L-Eye: {eye_l.x:.2f}, {eye_l.y:.2f}")
+                imgui.text(f"  R-Eye: {eye_r.x:.2f}, {eye_r.y:.2f}")
                 m_x = (face[13].x + face[14].x) / 2
                 m_y = (face[13].y + face[14].y) / 2
-                face_lines.append(f"Mouth: {m_x:.2f}, {m_y:.2f}")
+                imgui.text(f"  Mouth: {m_x:.2f}, {m_y:.2f}")
             else:
-                face_lines.append("No Detection")
+                imgui.text("  No Detection")
 
-            # Draw Background Box
-            # Width = 2 columns + padding
-            # Height = Max(Left, Right) + Face Rows
-            max_hand_rows = max(len(left_lines), len(right_lines))
-            total_rows = max_hand_rows + len(face_lines) + 1
-            box_h = int(total_rows * line_height) + 10
-            box_w = (col_width * 2) + 20
-            
-            cv2.rectangle(annotated_frame, (5, 45), (5 + box_w, 45 + box_h), (0, 0, 0), -1)
-            
-            # Function to draw column
-            def draw_col(lines, x_pos, start_y):
-                y = start_y
-                for line in lines:
-                    color = (200, 200, 200) # Grayish standard
-                    if "LEFT" in line: color = (100, 200, 255) # Orange-ish/Blue? Let's go Cyan for Left
-                    if "RIGHT" in line: color = (100, 255, 100) # Green for Right
-                    if "FACE" in line: color = (255, 255, 100) # Yellow for Face
-                    
-                    cv2.putText(annotated_frame, line, (x_pos, y), 
-                               cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 1)
-                    y += line_height
-                return y
+            imgui.end()
 
-            # Draw Left Col
-            draw_col(left_lines, start_x, start_y)
-            
-            # Draw Right Col
-            draw_col(right_lines, start_x + col_width, start_y)
-            
-            # Draw Face (Centered-ish below)
-            # Calculate Y start for face based on max hand lines
-            face_start_y = start_y + (max_hand_rows * line_height) + 5
-            draw_col(face_lines, start_x, face_start_y)
-            # -------------------------
-            
-            # Display status on main frame
-            status_text = []
-            if results["face"]: status_text.append("Face")
-            if results["pose"]: status_text.append("Pose")
-            if results["left_hand"]: status_text.append("L-Hand")
-            if results["right_hand"]: status_text.append("R-Hand")
-            
-            cv2.putText(annotated_frame, f"Tracking: {', '.join(status_text)}", 
-                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # --- Render ---
+            imgui.render()
+            gl.glClearColor(0.1, 0.1, 0.1, 1.0)
+            gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+            impl.render(imgui.get_draw_data())
+            glfw.swap_buffers(window)
 
-            cv2.imshow('Virtual Conductor', annotated_frame)
-            
-            # Draw and Show Controls
-            control_ui = draw_controls(buttons)
-            cv2.imshow('Controls', control_ui)
-            
-            # Position windows once on startup (Vertical Stack)
-            if not windows_positioned:
-                cv2.moveWindow('Virtual Conductor', 0, 0)
-                # Position Controls below the main window (Fixed 600 height + 50 px buffer)
-                cv2.moveWindow('Controls', 0, 650)
-                windows_positioned = True
-            
-            if cv2.waitKey(1) & 0xFF in [ord('q'), 27]:
-                break
-                
     finally:
+        gl.glDeleteTextures(1, [video_texture])
+        impl.shutdown()
         cap.release()
-        cv2.destroyAllWindows()
+        glfw.terminate()
 
 if __name__ == "__main__":
     main()
