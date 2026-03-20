@@ -3,3 +3,5 @@ __pycache__/
 venv/
 .claude/
 imgui.ini
+gestures/dataset.json
+gestures/*.pkl
