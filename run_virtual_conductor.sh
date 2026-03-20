@@ -29,33 +29,13 @@ fi
 echo "✅ Virtual environment activated"
 echo ""
 
-# Check camera permissions
-echo "🎥 Testing camera access..."
-python3 test_camera.py
-
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "⚠️  CAMERA PERMISSION REQUIRED"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Please grant Terminal camera access in System Settings."
-    echo "Try running: tccutil reset Camera"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    deactivate
-    exit 1
-fi
-
-echo "✅ Camera access confirmed!"
-echo ""
-
 # Run the tracker
 echo "🚀 Launching Virtual Conductor (Face + Hands + Pose)..."
-echo "   Controls: Toggle features in the 'Controls' window."
 echo "   Output: Sending MIDI (Virtual Port) and OSC (127.0.0.1:8000)"
-echo "   Press 'q' or 'ESC' to quit."
+echo "   Close the window to quit."
 echo ""
 
-python3 holistic_tracker.py
+python3 virtual-conductor.py
 
 # Deactivate on exit
 deactivate
