@@ -10,6 +10,7 @@ import OpenGL.GL as gl
 
 from tracker import MIDI_CC_OPTIONS
 from gesture_collector import GestureCollector
+from chuck_controller import ChuckController
 
 
 class ConductorGUI:
@@ -45,6 +46,42 @@ class ConductorGUI:
         self.gesture_label_buf = ""
         self.gesture_train_msg = ""
         self._tracker_recognizer = None
+
+        # --- ChucK ---
+        self.chuck = ChuckController()
+
+    def _render_chuck_panel(self):
+        imgui.begin("ChucK")
+
+        # Detect if process died on its own
+        if self.chuck.active and self.chuck.poll() is not None:
+            self.chuck.log.append(f"[{self.chuck.active} exited with code {self.chuck.returncode}]")
+            self.chuck.kill()
+
+        for name in self.chuck.scripts:
+            is_running = self.chuck.active == name
+
+            if is_running:
+                imgui.text_colored(f"● {name}", 0.3, 1.0, 0.3)
+                imgui.same_line()
+                if imgui.button(f"Kill##{name}"):
+                    self.chuck.log.append(f"[{name} stopped]")
+                    self.chuck.kill()
+            else:
+                imgui.text_colored(f"○ {name}", 0.6, 0.6, 0.6)
+                imgui.same_line()
+                if imgui.button(f"Launch##{name}"):
+                    self.chuck.launch(name)
+
+        imgui.separator()
+
+        imgui.begin_child("chuck_log", 0, 150, border=True)
+        for line in list(self.chuck.log):
+            imgui.text(line)
+        imgui.set_scroll_here_y(1.0)
+        imgui.end_child()
+
+        imgui.end()
 
     def _create_texture(self):
         texture_id = gl.glGenTextures(1)
@@ -246,6 +283,9 @@ class ConductorGUI:
 
         imgui.end()
 
+        # --- ChucK Panel ---
+        self._render_chuck_panel()
+
         # --- OpenGL Render ---
         imgui.render()
         gl.glClearColor(0.1, 0.1, 0.1, 1.0)
@@ -260,6 +300,7 @@ class ConductorGUI:
         if camera_warning:
             imgui.text_colored(camera_warning, 1.0, 0.3, 0.3)
         imgui.end()
+        self._render_chuck_panel()
         imgui.render()
         gl.glClearColor(0.1, 0.1, 0.1, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
@@ -267,6 +308,7 @@ class ConductorGUI:
         glfw.swap_buffers(self.window)
 
     def shutdown(self):
+        self.chuck.kill()
         gl.glDeleteTextures(1, [self.video_texture])
         self.impl.shutdown()
         glfw.terminate()
