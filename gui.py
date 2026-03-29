@@ -53,28 +53,52 @@ class ConductorGUI:
     def _render_chuck_panel(self):
         imgui.begin("ChucK")
 
-        # Detect if process died on its own
-        if self.chuck.active and self.chuck.poll() is not None:
-            self.chuck.log.append(f"[{self.chuck.active} exited with code {self.chuck.returncode}]")
-            self.chuck.kill()
+        # Detect if VM died on its own
+        if self.chuck.vm_poll() is not None and self.chuck._vm_proc is not None:
+            self.chuck.log.append(f"[VM] Exited with code {self.chuck.vm_returncode}")
+            self.chuck._vm_proc = None
+            self.chuck._shred_ids.clear()
 
-        for name in self.chuck.scripts:
-            is_running = self.chuck.active == name
-
-            if is_running:
-                imgui.text_colored(f"● {name}", 0.3, 1.0, 0.3)
-                imgui.same_line()
-                if imgui.button(f"Kill##{name}"):
-                    self.chuck.log.append(f"[{name} stopped]")
-                    self.chuck.kill()
-            else:
-                imgui.text_colored(f"○ {name}", 0.6, 0.6, 0.6)
-                imgui.same_line()
-                if imgui.button(f"Launch##{name}"):
-                    self.chuck.launch(name)
+        # --- VM control ---
+        if self.chuck.vm_running:
+            imgui.text_colored("● VM", 0.3, 1.0, 0.3)
+            imgui.same_line()
+            if imgui.button("Stop VM"):
+                self.chuck.stop_vm()
+        else:
+            imgui.text_colored("○ VM", 0.6, 0.6, 0.6)
+            imgui.same_line()
+            if imgui.button("Start VM"):
+                self.chuck.start_vm()
 
         imgui.separator()
 
+        # --- Per-effect toggles ---
+        for name in self.chuck.effects:
+            is_active = self.chuck.is_active(name)
+            has_id    = self.chuck.has_id(name)
+
+            if is_active:
+                color = (0.3, 1.0, 0.3) if has_id else (1.0, 0.8, 0.2)  # green / yellow while pending
+                imgui.text_colored(f"● {name}", *color)
+                imgui.same_line()
+                if has_id:
+                    if imgui.button(f"Remove##{name}"):
+                        self.chuck.remove_effect(name)
+                else:
+                    imgui.text_disabled("pending...")
+            else:
+                imgui.text_colored(f"○ {name}", 0.6, 0.6, 0.6)
+                imgui.same_line()
+                if self.chuck.vm_running:
+                    if imgui.button(f"Add##{name}"):
+                        self.chuck.add_effect(name)
+                else:
+                    imgui.text_disabled("--")
+
+        imgui.separator()
+
+        # --- Log ---
         imgui.begin_child("chuck_log", 0, 150, border=True)
         for line in list(self.chuck.log):
             imgui.text(line)
@@ -308,7 +332,7 @@ class ConductorGUI:
         glfw.swap_buffers(self.window)
 
     def shutdown(self):
-        self.chuck.kill()
+        self.chuck.stop_vm()
         gl.glDeleteTextures(1, [self.video_texture])
         self.impl.shutdown()
         glfw.terminate()

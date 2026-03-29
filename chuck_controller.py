@@ -1,61 +1,171 @@
 """
-ChucK Controller — process management for ChucK scripts.
+ChucK Controller — manages a persistent ChucK VM and individual DSP effect shreds.
 """
 
 import os
+import re
 import subprocess
 import threading
 from collections import deque
 
 
-SCRIPTS = {
-    "Theremin": "chuck-scripts/launch-theremin.ck",
-    "Synth":    "chuck-scripts/launch-synth.ck",
+EFFECTS = {
+    "Theremin": "chuck-scripts/theremin.ck",
+    "Synth":    "chuck-scripts/synth.ck",
 }
 
 
 class ChuckController:
     def __init__(self):
         self._project_dir = os.path.dirname(os.path.abspath(__file__))
-        self.scripts = SCRIPTS
-        self._proc = None
-        self.active = None
-        self.log = deque(maxlen=200)
+        self.effects = EFFECTS
+        self._vm_proc = None
+        self._shred_ids = {}   # name -> shred_id (int or None while pending)
+        self.log = deque(maxlen=500)
 
-    def launch(self, name):
-        self.kill()
+    # ------------------------------------------------------------------ VM
+
+    def start_vm(self):
+        if self._vm_proc and self._vm_proc.poll() is None:
+            return
         self.log.clear()
-        self.log.append(f"[Launching {name}...]")
-        self._proc = subprocess.Popen(
-            ["chuck", self.scripts[name]],
+        self.log.append("[VM] Starting ChucK VM...")
+        self._vm_proc = subprocess.Popen(
+            ["chuck", "--loop", "chuck-scripts/osc-router.ck"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             cwd=self._project_dir,
         )
-        self.active = name
         threading.Thread(target=self._read_output, daemon=True).start()
 
-    def kill(self):
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
+    def stop_vm(self):
+        self._shred_ids.clear()
+        if self._vm_proc and self._vm_proc.poll() is None:
+            self._vm_proc.terminate()
             try:
-                self._proc.wait(timeout=2)
+                self._vm_proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                self._proc.kill()
-        self._proc = None
-        self.active = None
+                self._vm_proc.kill()
+        self._vm_proc = None
+        self.log.append("[VM] Stopped.")
 
-    def poll(self):
-        """Check if process died on its own. Returns exit code or None if still running."""
-        if self._proc:
-            return self._proc.poll()
+    @property
+    def vm_running(self):
+        return self._vm_proc is not None and self._vm_proc.poll() is None
+
+    def vm_poll(self):
+        if self._vm_proc:
+            return self._vm_proc.poll()
         return None
 
     @property
-    def returncode(self):
-        return self._proc.returncode if self._proc else None
+    def vm_returncode(self):
+        return self._vm_proc.returncode if self._vm_proc else None
+
+    # ------------------------------------------------------------------ Effects
+
+    def add_effect(self, name):
+        if not self.vm_running or name in self._shred_ids:
+            return
+        # Optimistic: mark active immediately, ID filled in from stdout
+        self._shred_ids[name] = None
+        script = self.effects[name]
+        subprocess.run(
+            ["chuck", "+", script],
+            cwd=self._project_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # Query status after a short delay as reliable fallback for shred ID
+        threading.Timer(0.3, self._query_status).start()
+
+    def remove_effect(self, name):
+        if name not in self._shred_ids:
+            return
+        shred_id = self._shred_ids.pop(name)
+        if shred_id is not None:
+            subprocess.run(
+                ["chuck", "-", str(shred_id)],
+                cwd=self._project_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            # ID not received yet — query status then retry remove
+            self.log.append(f"[VM] Waiting for {name} shred ID, retrying remove...")
+            threading.Timer(0.3, lambda: self._deferred_remove(name)).start()
+
+    def is_active(self, name):
+        return name in self._shred_ids
+
+    def has_id(self, name):
+        """True only when shred ID is confirmed (remove is safe)."""
+        return self._shred_ids.get(name) is not None
+
+    # ------------------------------------------------------------------ Internal
+
+    def _query_status(self):
+        subprocess.run(
+            ["chuck", "^"],
+            cwd=self._project_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _deferred_remove(self, name):
+        self._query_status()
+        threading.Timer(0.3, lambda: self._retry_remove(name)).start()
+
+    def _retry_remove(self, name):
+        if name not in self._shred_ids:
+            return  # already removed or never confirmed
+        shred_id = self._shred_ids.pop(name)
+        if shred_id is not None:
+            subprocess.run(
+                ["chuck", "-", str(shred_id)],
+                cwd=self._project_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            self.log.append(f"[VM] Could not get shred ID for {name}, remove failed.")
 
     def _read_output(self):
-        for line in self._proc.stdout:
-            self.log.append(line.rstrip())
+        for line in self._vm_proc.stdout:
+            line = line.rstrip()
+            self.log.append(line)
+            self._parse_shred_event(line)
+        self._shred_ids.clear()
+
+    def _parse_shred_event(self, line):
+        # Sporking: "[chuck](VM): sporking incoming shred: 2 (theremin.ck)..."
+        m = re.search(r'sporking incoming shred: (\d+) \(([^)]+)\)', line)
+        if m:
+            self._register_shred(int(m.group(1)), m.group(2))
+            return
+
+        # Status line from chuck ^: "  [shred id]: 2  [source]: theremin.ck ..."
+        m = re.search(r'\[shred id\]:\s*(\d+).*\[source\]:\s*(\S+)', line)
+        if m:
+            self._register_shred(int(m.group(1)), m.group(2))
+            return
+
+        # Removing: "[chuck](VM): removing shred: 2 (theremin.ck)..."
+        m = re.search(r'removing shred: (\d+) \(([^)]+)\)', line)
+        if m:
+            shred_id = int(m.group(1))
+            for name, sid in list(self._shred_ids.items()):
+                if sid == shred_id:
+                    del self._shred_ids[name]
+                    self.log.append(f"[VM] {name} removed (shred {shred_id})")
+                    return
+
+    def _register_shred(self, shred_id, raw_filename):
+        filename = os.path.basename(raw_filename)
+        for name, script in self.effects.items():
+            if os.path.basename(script) == filename:
+                if self._shred_ids.get(name) is None:
+                    self._shred_ids[name] = shred_id
+                    self.log.append(f"[VM] {name} active (shred {shred_id})")
+                return

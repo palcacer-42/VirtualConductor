@@ -10,6 +10,13 @@ SinOsc s => Gain g => dac;
 440 => s.freq;
 0.5 => g.gain;
 
+// ===== VIBRATO =====
+// Rate proportional to current frequency (ratio 1/60 → ~7 Hz at 440 Hz)
+// Depth: ±0.5% of current frequency
+SinOsc vibrato => blackhole;
+0.015 => float vibratoDepthRatio;  // depth as fraction of freq
+1.0 / 60.0 => float vibratoRateRatio;  // rate as fraction of freq
+
 // ===== INTERPOLATION SETTINGS =====
 0.1 => float smoothing;
 5::ms => dur updateRate;
@@ -23,7 +30,12 @@ fun void interpolate() {
         (1.0 - g_left_y) => float targetGain;
 
         // Smooth toward targets
-        s.freq() + (targetFreq - s.freq()) * smoothing => s.freq;
+        s.freq() + (targetFreq - s.freq()) * smoothing => float currentFreq;
+
+        // Vibrato: rate and depth both scale with frequency
+        currentFreq * vibratoRateRatio => vibrato.freq;
+        currentFreq + (vibrato.last() * currentFreq * vibratoDepthRatio) => s.freq;
+
         g.gain() + (targetGain - g.gain()) * smoothing => g.gain;
 
         updateRate => now;
