@@ -9,8 +9,8 @@ from collections import deque
 
 
 SCRIPTS = {
-    "Theremin": "chuck-scripts/theremin.ck",
-    "Synth":    "chuck-scripts/synth.ck",
+    "Theremin": "chuck-scripts/launch-theremin.ck",
+    "Synth":    "chuck-scripts/launch-synth.ck",
 }
 
 
