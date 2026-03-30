@@ -2,8 +2,8 @@
 // Right hand Y = pitch, Left hand Y = volume.
 // Run via launch-theremin.ck, not directly.
 
-global float g_right_index_y;
-global float g_left_index_y;
+global float g_theremin_pitch;
+global float g_theremin_volume;
 
 // ===== AUDIO SETUP =====
 SinOsc s => Gain g => dac;
@@ -26,8 +26,8 @@ SinOsc vibrato => blackhole;
 fun void interpolate() {
     while(true) {
         // Compute targets from globals each tick
-        200 + ((1.0 - g_right_index_y) * 600) => float targetFreq;
-        (1.0 - g_left_index_y) => float targetGain;
+        200 + ((1.0 - g_theremin_pitch) * 600) => float targetFreq;
+        (1.0 - g_theremin_volume) => float targetGain;
 
         // Smooth toward targets
         s.freq() + (targetFreq - s.freq()) * smoothing => float currentFreq;

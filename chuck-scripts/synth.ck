@@ -2,8 +2,8 @@
 // Right hand Y = pitch, Left hand Y = filter cutoff.
 // Run via launch-synth.ck, not directly.
 
-global float g_right_index_y;
-global float g_left_index_y;
+global float g_synth_pitch;
+global float g_synth_cutoff;
 
 // ===== HELPERS =====
 fun float mapRange(float value, float inMin, float inMax, float outMin, float outMax) {
@@ -41,8 +41,8 @@ fun void interpolate() {
 
     while(true) {
         // Compute targets from globals each tick
-        200 + ((1.0 - g_right_index_y) * 600) => float targetFreq;
-        expMap(1.0 - g_left_index_y, minCutoff, maxCutoff) => float targetCutoff;
+        200 + ((1.0 - g_synth_pitch) * 600) => float targetFreq;
+        expMap(1.0 - g_synth_cutoff, minCutoff, maxCutoff) => float targetCutoff;
 
         // Smooth toward targets
         currentFreq + (targetFreq - currentFreq) * smoothing => currentFreq;
