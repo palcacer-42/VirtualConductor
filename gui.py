@@ -33,13 +33,20 @@ class ConductorGUI:
         # --- Video Texture ---
         self.video_texture = self._create_texture()
 
-        # --- UI State ---
+        # --- Tracking State ---
         self.active_face = True
         self.active_hands = True
         self.active_pose = True
+
+        # --- MIDI State ---
         self.lcc_index = 0
         self.rcc_index = 4
         self.cc_labels = [str(cc) for cc in MIDI_CC_OPTIONS]
+
+        # --- OSC State ---
+        self.osc_enabled = True
+        self.osc_ip_buf = "127.0.0.1"
+        self.osc_port_buf = "8000"
 
         # --- Gesture Collection State ---
         self.gesture_collector = GestureCollector()
@@ -147,7 +154,12 @@ class ConductorGUI:
             "left": MIDI_CC_OPTIONS[self.lcc_index],
             "right": MIDI_CC_OPTIONS[self.rcc_index]
         }
-        return active_modules, cc_settings
+        osc_settings = {
+            "enabled": self.osc_enabled,
+            "ip": self.osc_ip_buf.strip(),
+            "port": int(self.osc_port_buf.strip()) if self.osc_port_buf.strip().isdigit() else 8000
+        }
+        return active_modules, cc_settings, osc_settings
 
     def render(self, frame_rgb, results, camera_warning=None):
         self._update_texture(frame_rgb)
@@ -162,34 +174,35 @@ class ConductorGUI:
         imgui.image(self.video_texture, vid_w, vid_h)
         imgui.end()
 
-        # --- Controls ---
-        imgui.begin("Controls")
-
-        _, self.active_face = imgui.checkbox("Face", self.active_face)
-        imgui.same_line()
-        _, self.active_hands = imgui.checkbox("Hands", self.active_hands)
-        imgui.same_line()
-        _, self.active_pose = imgui.checkbox("Pose", self.active_pose)
-
-        imgui.separator()
-
-        imgui.text("MIDI CC Assignment")
+        # --- MIDI ---
+        imgui.begin("MIDI")
+        imgui.text("CC Assignment")
         imgui.set_next_item_width(120)
         _, self.lcc_index = imgui.combo("L-CC", self.lcc_index, self.cc_labels)
         imgui.same_line()
         imgui.set_next_item_width(120)
         _, self.rcc_index = imgui.combo("R-CC", self.rcc_index, self.cc_labels)
-
-        left_val = results["midi_values"]["left"] / 127.0
-        right_val = results["midi_values"]["right"] / 127.0
-        imgui.progress_bar(left_val, (120, 14), f"L: {results['midi_values']['left']}")
-        imgui.same_line()
-        imgui.progress_bar(right_val, (120, 14), f"R: {results['midi_values']['right']}")
-
         imgui.end()
 
-        # --- Tracking Data ---
-        imgui.begin("Tracking Data")
+        # --- OSC ---
+        imgui.begin("OSC")
+        _, self.osc_enabled = imgui.checkbox("Enabled", self.osc_enabled)
+        imgui.set_next_item_width(140)
+        _, self.osc_ip_buf = imgui.input_text("IP", self.osc_ip_buf, 64)
+        imgui.set_next_item_width(80)
+        _, self.osc_port_buf = imgui.input_text("Port", self.osc_port_buf, 8)
+        imgui.end()
+
+        # --- Tracking ---
+        imgui.begin("Tracking")
+
+        _, self.active_hands = imgui.checkbox("Hands", self.active_hands)
+        imgui.same_line()
+        _, self.active_face = imgui.checkbox("Face", self.active_face)
+        imgui.same_line()
+        _, self.active_pose = imgui.checkbox("Pose", self.active_pose)
+
+        imgui.separator()
 
         digits = [("Thumb", 4), ("Index", 8), ("Mid", 12), ("Ring", 16), ("Pinky", 20)]
 
@@ -198,6 +211,8 @@ class ConductorGUI:
         if not self.active_hands:
             imgui.text("[OFF]")
         elif results["left_hand"]:
+            left_val = results["midi_values"]["left"] / 127.0
+            imgui.progress_bar(left_val, (-1, 14), f"MIDI CC{MIDI_CC_OPTIONS[self.lcc_index]}: {results['midi_values']['left']}")
             for name, idx in digits:
                 pt = results["left_hand"][idx]
                 imgui.text(f"  {name}: {pt.x:.2f}, {pt.y:.2f}")
@@ -211,6 +226,8 @@ class ConductorGUI:
         if not self.active_hands:
             imgui.text("[OFF]")
         elif results["right_hand"]:
+            right_val = results["midi_values"]["right"] / 127.0
+            imgui.progress_bar(right_val, (-1, 14), f"MIDI CC{MIDI_CC_OPTIONS[self.rcc_index]}: {results['midi_values']['right']}")
             for name, idx in digits:
                 pt = results["right_hand"][idx]
                 imgui.text(f"  {name}: {pt.x:.2f}, {pt.y:.2f}")

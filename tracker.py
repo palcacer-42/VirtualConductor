@@ -73,9 +73,10 @@ class HolisticTracker:
         )
         return vision.PoseLandmarker.create_from_options(options)
 
-    def process_frame(self, frame, timestamp_ms, active_modules, cc_settings):
+    def process_frame(self, frame, timestamp_ms, active_modules, cc_settings, osc_settings=None):
         # active_modules: {"face": bool, ...}
         # cc_settings: {"left": int, "right": int}
+        # osc_settings: {"enabled": bool, "ip": str, "port": int}
 
         # Convert to MediaPipe Image
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
@@ -115,16 +116,19 @@ class HolisticTracker:
                 else:
                     holistic_data["left_hand"] = hand_landmarks
 
+        osc_active = osc_settings and osc_settings.get("enabled", True)
+
         # Send MIDI/OSC — Left Hand
         if holistic_data["left_hand"]:
             index_y = 1.0 - holistic_data["left_hand"][8].y
             holistic_data["midi_values"]["left"] = int(index_y * 127)
             self.midi.send_control_change(0, cc_settings["left"], index_y)
 
-            fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
-            for name, idx in fingers:
-                pt = holistic_data["left_hand"][idx]
-                self.osc.send_vector(f"/left-hand/{name}", pt.x, pt.y, pt.z)
+            if osc_active:
+                fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
+                for name, idx in fingers:
+                    pt = holistic_data["left_hand"][idx]
+                    self.osc.send_vector(f"/left-hand/{name}", pt.x, pt.y, pt.z)
 
         # Send MIDI/OSC — Right Hand
         if holistic_data["right_hand"]:
@@ -132,10 +136,11 @@ class HolisticTracker:
             holistic_data["midi_values"]["right"] = int(index_y * 127)
             self.midi.send_control_change(0, cc_settings["right"], index_y)
 
-            fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
-            for name, idx in fingers:
-                pt = holistic_data["right_hand"][idx]
-                self.osc.send_vector(f"/right-hand/{name}", pt.x, pt.y, pt.z)
+            if osc_active:
+                fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
+                for name, idx in fingers:
+                    pt = holistic_data["right_hand"][idx]
+                    self.osc.send_vector(f"/right-hand/{name}", pt.x, pt.y, pt.z)
 
         # Gesture recognition
         if holistic_data["right_hand"]:

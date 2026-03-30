@@ -52,10 +52,10 @@ def main():
             frame = cv2.flip(frame, 1)
 
             # Get current UI settings
-            active_modules, cc_settings = gui.get_settings()
+            active_modules, cc_settings, osc_settings = gui.get_settings()
 
             # Process tracking + send MIDI/OSC
-            results = tracker.process_frame(frame, int(time.time() * 1000), active_modules, cc_settings)
+            results = tracker.process_frame(frame, int(time.time() * 1000), active_modules, cc_settings, osc_settings)
 
             # Draw landmarks and convert for display
             annotated_frame = draw_landmarks(frame, results)
