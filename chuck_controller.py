@@ -31,7 +31,10 @@ class ChuckController:
         self.log.clear()
         self.log.append("[VM] Starting ChucK VM...")
         self._vm_proc = subprocess.Popen(
-            ["chuck", "--loop", "chuck-scripts/core/osc-listener.ck", "chuck-scripts/core/osc-router.ck"],
+            ["chuck", "--loop",
+             "chuck-scripts/core/osc-listener.ck",
+             "chuck-scripts/core/landmarks.ck",
+             "chuck-scripts/core/osc-router.ck"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -49,6 +52,24 @@ class ChuckController:
                 self._vm_proc.kill()
         self._vm_proc = None
         self.log.append("[VM] Stopped.")
+
+    def restart_vm(self):
+        """Restart the VM and re-add the effects that were playing.
+
+        Used by the routing panel so saved routing changes take effect without
+        the user having to manually re-add their active effects.
+        """
+        active = [name for name in self.effects if self.is_active(name)]
+        self.stop_vm()
+        self.start_vm()
+        if active:
+            self.log.append(f"[VM] Re-adding after restart: {', '.join(active)}")
+            # The VM needs a moment to finish booting before it accepts `chuck +`.
+            threading.Timer(1.0, lambda: self._reapply_effects(active)).start()
+
+    def _reapply_effects(self, names):
+        for name in names:
+            self.add_effect(name)
 
     @property
     def vm_running(self):

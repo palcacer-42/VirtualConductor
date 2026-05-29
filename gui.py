@@ -11,6 +11,7 @@ import OpenGL.GL as gl
 from tracker import MIDI_CC_OPTIONS
 from gesture_collector import GestureCollector
 from chuck_controller import ChuckController
+import routing_config
 
 
 class ConductorGUI:
@@ -56,6 +57,58 @@ class ConductorGUI:
 
         # --- ChucK ---
         self.chuck = ChuckController()
+
+        # --- Routing State (landmark -> effect param, persisted to config/*.cfg) ---
+        self.routing_state = {
+            module: routing_config.load_routing(module)
+            for module in routing_config.MODULE_PARAMS
+        }
+        self.routing_msg = ""
+
+    def _render_routing_panel(self):
+        imgui.begin("Routing")
+        imgui.text("Map a hand landmark to each effect parameter.")
+        imgui.spacing()
+
+        for module, params in routing_config.MODULE_PARAMS.items():
+            imgui.text_colored(module.upper(), 0.4, 0.8, 1.0)
+            for param, _default in params:
+                current = self.routing_state[module][param]
+                try:
+                    idx = routing_config.LANDMARKS.index(current)
+                except ValueError:
+                    idx = 0
+                imgui.set_next_item_width(160)
+                changed, new_idx = imgui.combo(
+                    f"{param}##{module}", idx, routing_config.LANDMARKS
+                )
+                if changed:
+                    self.routing_state[module][param] = routing_config.LANDMARKS[new_idx]
+            imgui.spacing()
+
+        imgui.separator()
+
+        if imgui.button("Save Routing"):
+            for module in routing_config.MODULE_PARAMS:
+                routing_config.save_routing(module, self.routing_state[module])
+            self.routing_msg = "Saved to config/*.cfg"
+
+        if self.chuck.vm_running:
+            imgui.same_line()
+            if imgui.button("Save & Restart VM"):
+                for module in routing_config.MODULE_PARAMS:
+                    routing_config.save_routing(module, self.routing_state[module])
+                self.chuck.restart_vm()  # re-adds whatever effects were playing
+                self.routing_msg = "Saved and restarted VM"
+
+        if self.routing_msg:
+            imgui.text(self.routing_msg)
+
+        # Routing is only read at VM startup, so a running VM needs a restart.
+        if self.chuck.vm_running:
+            imgui.text_colored("Restart VM to apply changes.", 1.0, 0.8, 0.2)
+
+        imgui.end()
 
     def _render_chuck_panel(self):
         imgui.begin("ChucK")
@@ -327,6 +380,9 @@ class ConductorGUI:
         # --- ChucK Panel ---
         self._render_chuck_panel()
 
+        # --- Routing Panel ---
+        self._render_routing_panel()
+
         # --- OpenGL Render ---
         imgui.render()
         gl.glClearColor(0.1, 0.1, 0.1, 1.0)
@@ -342,6 +398,7 @@ class ConductorGUI:
             imgui.text_colored(camera_warning, 1.0, 0.3, 0.3)
         imgui.end()
         self._render_chuck_panel()
+        self._render_routing_panel()
         imgui.render()
         gl.glClearColor(0.1, 0.1, 0.1, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
