@@ -1,85 +1,74 @@
-// osc-listener.ck — Receives OSC from Python, writes raw data to landmark globals.
-// Infrastructure only — do not add routing logic here.
+// osc-listener.ck — receives OSC from Python and stores values by source name.
+// Infrastructure only: no routing or DSP logic here.
+//
+// Address namespace (category = first path segment):
+//   /landmarks/<type>/<side>/<finger>   f f f   e.g. /landmarks/hand/right/index
+//   /slider/<module>/<name>             f       e.g. /slider/theremin/vibrato
+//   /trigger/<name>                     (future, discrete — not handled here yet)
+//
+// Values land in the Landmarks store (landmarks.ck, loaded first):
+//   landmarks -> key "<side>_<finger>_<axis>"   (e.g. right_index_y)
+//   sliders   -> key "<module>.<name>"          (e.g. theremin.vibrato)
+//
+// One loop handles every source via OscIn.listenAll(); adding a finger, a
+// slider, or a whole module needs no new code unless it's a new *category*.
 
-// --- Landmark globals (raw data from Python) ---
-global float g_right_thumb_x;  global float g_right_thumb_y;  global float g_right_thumb_z;
-global float g_right_index_x;  global float g_right_index_y;  global float g_right_index_z;
-global float g_right_middle_x; global float g_right_middle_y; global float g_right_middle_z;
-global float g_right_ring_x;   global float g_right_ring_y;   global float g_right_ring_z;
-global float g_right_pinky_x;  global float g_right_pinky_y;  global float g_right_pinky_z;
+OscIn oin;
+OscMsg msg;
+8000 => oin.port;
+oin.listenAll();   // catch every address; we dispatch on the path ourselves
 
-global float g_left_thumb_x;   global float g_left_thumb_y;   global float g_left_thumb_z;
-global float g_left_index_x;   global float g_left_index_y;   global float g_left_index_z;
-global float g_left_middle_x;  global float g_left_middle_y;  global float g_left_middle_z;
-global float g_left_ring_x;    global float g_left_ring_y;    global float g_left_ring_z;
-global float g_left_pinky_x;   global float g_left_pinky_y;   global float g_left_pinky_z;
+<<< "[osc-listener] listening on port", oin.port() >>>;
 
-// Neutral starting position (center of frame)
-0.5 => g_right_thumb_x;  0.5 => g_right_thumb_y;  0.0 => g_right_thumb_z;
-0.5 => g_right_index_x;  0.5 => g_right_index_y;  0.0 => g_right_index_z;
-0.5 => g_right_middle_x; 0.5 => g_right_middle_y; 0.0 => g_right_middle_z;
-0.5 => g_right_ring_x;   0.5 => g_right_ring_y;   0.0 => g_right_ring_z;
-0.5 => g_right_pinky_x;  0.5 => g_right_pinky_y;  0.0 => g_right_pinky_z;
+// Split an OSC address into its non-empty path segments.
+// "/landmarks/hand/right/index" -> ["landmarks","hand","right","index"]
+fun string[] segments( string addr )
+{
+    string out[0];
+    addr => string rest;
+    while( rest.length() > 0 )
+    {
+        rest.find( "/" ) => int i;
+        if( i < 0 ) { out << rest; break; }   // last segment
+        if( i > 0 ) out << rest.substring( 0, i );
+        rest.substring( i + 1 ) => rest;
+    }
+    return out;
+}
 
-0.5 => g_left_thumb_x;   0.5 => g_left_thumb_y;   0.0 => g_left_thumb_z;
-0.5 => g_left_index_x;   0.5 => g_left_index_y;   0.0 => g_left_index_z;
-0.5 => g_left_middle_x;  0.5 => g_left_middle_y;  0.0 => g_left_middle_z;
-0.5 => g_left_ring_x;    0.5 => g_left_ring_y;    0.0 => g_left_ring_z;
-0.5 => g_left_pinky_x;   0.5 => g_left_pinky_y;   0.0 => g_left_pinky_z;
+while( true )
+{
+    oin => now;
+    while( oin.recv( msg ) )
+    {
+        segments( msg.address ) @=> string seg[];
+        if( seg.size() < 1 ) continue;
 
-OscRecv recv;
-8000 => recv.port;
-recv.listen();
+        if( seg[0] == "landmarks" )
+        {
+            // Key is prefixed with the landmark type (hand_, pose_, face_).
+            if( seg.size() < 2 ) continue;
+            seg[1] => string type;   // hand | pose | face
 
-recv.event("/right-hand/thumb, f f f")  @=> OscEvent rightThumb;
-recv.event("/right-hand/index, f f f")  @=> OscEvent rightIndex;
-recv.event("/right-hand/middle, f f f") @=> OscEvent rightMiddle;
-recv.event("/right-hand/ring, f f f")   @=> OscEvent rightRing;
-recv.event("/right-hand/pinky, f f f")  @=> OscEvent rightPinky;
-
-recv.event("/left-hand/thumb, f f f")   @=> OscEvent leftThumb;
-recv.event("/left-hand/index, f f f")   @=> OscEvent leftIndex;
-recv.event("/left-hand/middle, f f f")  @=> OscEvent leftMiddle;
-recv.event("/left-hand/ring, f f f")    @=> OscEvent leftRing;
-recv.event("/left-hand/pinky, f f f")   @=> OscEvent leftPinky;
-
-<<< "[osc-listener] Listening on port 8000..." >>>;
-
-// --- Active (uncomment as effects need them) ---
-fun void routeRightIndex() {
-    while(true) {
-        rightIndex => now;
-        while(rightIndex.nextMsg()) {
-            rightIndex.getFloat() => g_right_index_x;
-            rightIndex.getFloat() => g_right_index_y;
-            rightIndex.getFloat() => g_right_index_z;
+            if( type == "hand" )
+            {
+                // /landmarks/hand/<side>/<finger> (x y z) -> hand_<side>_<finger>_<axis>
+                if( seg.size() < 4 || msg.numArgs() < 3 ) continue;
+                "hand_" + seg[2] + "_" + seg[3] => string base;
+                Landmarks.set( base + "_x", msg.getFloat(0) );
+                Landmarks.set( base + "_y", msg.getFloat(1) );
+                Landmarks.set( base + "_z", msg.getFloat(2) );
+            }
+            // future: /landmarks/pose/<name> -> pose_<name>_<axis>
+            //         /landmarks/face/<name> -> face_<name>_<axis>
         }
+        else if( seg[0] == "slider" )
+        {
+            // /slider/<module>/<name> carrying one float
+            if( seg.size() < 3 || msg.numArgs() < 1 ) continue;
+            seg[1] + "." + seg[2] => string key;     // "<module>.<name>"
+            Landmarks.set( key, msg.getFloat(0) );
+        }
+        // else: unknown / future category (e.g. /trigger/...) — ignored for now
     }
 }
-fun void routeLeftIndex() {
-    while(true) {
-        leftIndex => now;
-        while(leftIndex.nextMsg()) {
-            leftIndex.getFloat() => g_left_index_x;
-            leftIndex.getFloat() => g_left_index_y;
-            leftIndex.getFloat() => g_left_index_z;
-        }
-    }
-}
-spork ~ routeRightIndex();
-spork ~ routeLeftIndex();
-
-// --- Inactive (uncomment as effects need them) ---
-// fun void routeRightThumb() {
-//     while(true) {
-//         rightThumb => now;
-//         while(rightThumb.nextMsg()) {
-//             rightThumb.getFloat() => g_right_thumb_x;
-//             rightThumb.getFloat() => g_right_thumb_y;
-//             rightThumb.getFloat() => g_right_thumb_z;
-//         }
-//     }
-// }
-// spork ~ routeRightThumb();
-
-while(true) { 1::second => now; }

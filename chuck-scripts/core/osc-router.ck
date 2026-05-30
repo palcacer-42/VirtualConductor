@@ -39,10 +39,10 @@ fun string route(string path, string param, string fallback) {
 }
 
 // --- Resolve routing once at startup ---
-route(cfgDir + "theremin.cfg", "pitch",  "right_index_y") => string thereminPitch;
-route(cfgDir + "theremin.cfg", "volume", "left_index_y")  => string thereminVolume;
-route(cfgDir + "synth.cfg",    "pitch",  "right_index_y") => string synthPitch;
-route(cfgDir + "synth.cfg",    "cutoff", "left_index_y")  => string synthCutoff;
+route(cfgDir + "theremin.cfg", "pitch",  "hand_right_index_y") => string thereminPitch;
+route(cfgDir + "theremin.cfg", "volume", "hand_left_index_y")  => string thereminVolume;
+route(cfgDir + "synth.cfg",    "pitch",  "hand_right_index_y") => string synthPitch;
+route(cfgDir + "synth.cfg",    "cutoff", "hand_left_index_y")  => string synthCutoff;
 
 <<< "[osc-router] theremin:  pitch <-", thereminPitch, " volume <-", thereminVolume >>>;
 <<< "[osc-router] synth:     pitch <-", synthPitch, " cutoff <-", synthCutoff >>>;

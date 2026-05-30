@@ -15,15 +15,15 @@ CONFIG_DIR = os.path.join(
 # Params each module exposes, with the default landmark used when an entry is
 # missing. Must match the fallbacks in osc-router.ck.
 MODULE_PARAMS = {
-    "theremin": [("pitch", "right_index_y"), ("volume", "left_index_y")],
-    "synth":    [("pitch", "right_index_y"), ("cutoff", "left_index_y")],
+    "theremin": [("pitch", "hand_right_index_y"), ("volume", "hand_left_index_y")],
+    "synth":    [("pitch", "hand_right_index_y"), ("cutoff", "hand_left_index_y")],
 }
 
 # All selectable landmarks — must match the table in landmarks.ck.
 SIDES = ["right", "left"]
 FINGERS = ["thumb", "index", "middle", "ring", "pinky"]
 AXES = ["x", "y", "z"]
-LANDMARKS = [f"{s}_{f}_{a}" for s in SIDES for f in FINGERS for a in AXES]
+LANDMARKS = [f"hand_{s}_{f}_{a}" for s in SIDES for f in FINGERS for a in AXES]
 
 
 def config_path(module):

@@ -128,7 +128,7 @@ class HolisticTracker:
                 fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
                 for name, idx in fingers:
                     pt = holistic_data["left_hand"][idx]
-                    self.osc.send_vector(f"/left-hand/{name}", pt.x, pt.y, pt.z)
+                    self.osc.send_vector(f"/landmarks/hand/left/{name}", pt.x, pt.y, pt.z)
 
         # Send MIDI/OSC — Right Hand
         if holistic_data["right_hand"]:
@@ -140,7 +140,7 @@ class HolisticTracker:
                 fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
                 for name, idx in fingers:
                     pt = holistic_data["right_hand"][idx]
-                    self.osc.send_vector(f"/right-hand/{name}", pt.x, pt.y, pt.z)
+                    self.osc.send_vector(f"/landmarks/hand/right/{name}", pt.x, pt.y, pt.z)
 
         # Gesture recognition
         if holistic_data["right_hand"]:
