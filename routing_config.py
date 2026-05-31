@@ -6,11 +6,23 @@ system; it must stay in sync with chuck-scripts/core/osc-router.ck (parser +
 defaults) and landmarks.ck (the set of valid landmark names).
 """
 
+import json
 import os
 
 CONFIG_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "chuck-scripts", "config"
 )
+
+# GUI-only state (control mode + slider position per param), persisted across
+# sessions. The landmark choice is NOT here — that lives in the .cfg files which
+# ChucK reads at startup. ChucK learns mode/slider live over OSC, so this file is
+# purely so the GUI comes back the way the user left it.
+STATE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "routing_state.json"
+)
+
+DEFAULT_MODE = "slider"   # params start on the slider until the user ticks landmark
+DEFAULT_SLIDER = 0.5      # neutral, matches the seeded landmark center
 
 # Params each module exposes, with the default landmark used when an entry is
 # missing. Must match the fallbacks in osc-router.ck.
@@ -55,3 +67,36 @@ def save_routing(module, routing):
     with open(config_path(module), "w") as f:
         for param in params:
             f.write(f"{param.ljust(width)} : {routing[param]}\n")
+
+
+def load_state():
+    """Return {module: {param: {"mode", "slider"}}}, filling defaults for any
+    missing/invalid entry so the GUI always gets a complete, well-typed dict."""
+    data = {}
+    if os.path.exists(STATE_PATH):
+        try:
+            with open(STATE_PATH) as f:
+                data = json.load(f)
+        except (ValueError, OSError):
+            data = {}  # corrupt/unreadable -> fall back to defaults
+
+    state = {}
+    for module, params in MODULE_PARAMS.items():
+        state[module] = {}
+        for param, _default in params:
+            saved = data.get(module, {}).get(param, {})
+            mode = saved.get("mode", DEFAULT_MODE)
+            if mode not in ("slider", "landmark"):
+                mode = DEFAULT_MODE
+            try:
+                slider = float(saved.get("slider", DEFAULT_SLIDER))
+            except (TypeError, ValueError):
+                slider = DEFAULT_SLIDER
+            state[module][param] = {"mode": mode, "slider": slider}
+    return state
+
+
+def save_state(state):
+    """Persist {module: {param: {"mode", "slider"}}} to routing_state.json."""
+    with open(STATE_PATH, "w") as f:
+        json.dump(state, f, indent=2)

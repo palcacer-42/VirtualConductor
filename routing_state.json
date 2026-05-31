@@ -1,0 +1,22 @@
+{
+  "theremin": {
+    "pitch": {
+      "mode": "slider",
+      "slider": 0.3904109597206116
+    },
+    "volume": {
+      "mode": "slider",
+      "slider": 0.2945205569267273
+    }
+  },
+  "synth": {
+    "pitch": {
+      "mode": "slider",
+      "slider": 0.7876712083816528
+    },
+    "cutoff": {
+      "mode": "slider",
+      "slider": 0.5
+    }
+  }
+}

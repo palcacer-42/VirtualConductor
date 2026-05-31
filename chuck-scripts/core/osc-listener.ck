@@ -4,11 +4,13 @@
 // Address namespace (category = first path segment):
 //   /landmarks/<type>/<side>/<finger>   f f f   e.g. /landmarks/hand/right/index
 //   /slider/<module>/<name>             f       e.g. /slider/theremin/vibrato
+//   /mode/<module>/<param>              i       e.g. /mode/synth/pitch  (1=landmark,0=slider)
 //   /trigger/<name>                     (future, discrete — not handled here yet)
 //
 // Values land in the Landmarks store (landmarks.ck, loaded first):
 //   landmarks -> key "<side>_<finger>_<axis>"   (e.g. right_index_y)
 //   sliders   -> key "<module>.<name>"          (e.g. theremin.vibrato)
+//   modes     -> key "mode.<module>.<param>"    (e.g. mode.synth.pitch)
 //
 // One loop handles every source via OscIn.listenAll(); adding a finger, a
 // slider, or a whole module needs no new code unless it's a new *category*.
@@ -68,6 +70,13 @@ while( true )
             if( seg.size() < 3 || msg.numArgs() < 1 ) continue;
             seg[1] + "." + seg[2] => string key;     // "<module>.<name>"
             Landmarks.set( key, msg.getFloat(0) );
+        }
+        else if( seg[0] == "mode" )
+        {
+            // /mode/<module>/<param> carrying one int (1=landmark, 0=slider)
+            if( seg.size() < 3 || msg.numArgs() < 1 ) continue;
+            "mode." + seg[1] + "." + seg[2] => string key;  // "mode.<module>.<param>"
+            Landmarks.set( key, msg.getInt(0) );
         }
         // else: unknown / future category (e.g. /trigger/...) — ignored for now
     }

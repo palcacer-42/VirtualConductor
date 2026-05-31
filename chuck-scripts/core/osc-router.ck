@@ -47,13 +47,24 @@ route(cfgDir + "synth.cfg",    "cutoff", "hand_left_index_y")  => string synthCu
 <<< "[osc-router] theremin:  pitch <-", thereminPitch, " volume <-", thereminVolume >>>;
 <<< "[osc-router] synth:     pitch <-", synthPitch, " cutoff <-", synthCutoff >>>;
 
-// --- Drive params from their routed landmarks ---
+// Pick this param's live value from its mode flag (1=landmark, 0=slider; an
+// unset key reads 0.0 -> slider, the default): the startup-resolved landmark
+// when set, otherwise the GUI slider. mode + slider arrive live over OSC.
+fun float source(string module, string param, string landmark) {
+    "mode." + module + "." + param => string modeKey;   // mode.<module>.<param>
+    module + "." + param           => string sliderKey; // <module>.<param>
+    if (Landmarks.value(modeKey) > 0.5)
+        return Landmarks.value(landmark);   // landmark mode
+    return Landmarks.value(sliderKey);      // slider mode (default)
+}
+
+// --- Drive params from their selected source each tick ---
 fun void updateRouting() {
     while(true) {
-        Landmarks.value(thereminPitch)  => g_theremin_pitch;
-        Landmarks.value(thereminVolume) => g_theremin_volume;
-        Landmarks.value(synthPitch)     => g_synth_pitch;
-        Landmarks.value(synthCutoff)    => g_synth_cutoff;
+        source("theremin", "pitch",  thereminPitch)  => g_theremin_pitch;
+        source("theremin", "volume", thereminVolume) => g_theremin_volume;
+        source("synth",    "pitch",  synthPitch)     => g_synth_pitch;
+        source("synth",    "cutoff", synthCutoff)    => g_synth_cutoff;
         1::ms => now;
     }
 }
