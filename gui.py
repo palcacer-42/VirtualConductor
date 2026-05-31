@@ -106,10 +106,17 @@ class ConductorGUI:
             for param, _default in params:
                 st = self.routing_state[module][param]
                 if st["mode"] == "landmark":
-                    value = self.latest_landmarks.get(st["landmark"], 0.5)
-                    if st["invert"]:
-                        # e.g. MediaPipe Y is top-down, so hand-up=more needs 1-y.
-                        value = 1.0 - value
+                    raw = self.latest_landmarks.get(st["landmark"], 0.5)
+                    # Invert FIRST (fix the axis direction), then range on the
+                    # corrected signal. This keeps Set Min/Max semantic: lo always
+                    # maps to 0 (param min), hi to 1 (max). Captures live in this
+                    # corrected space, so the range resets when invert toggles.
+                    r = (1.0 - raw) if st["invert"] else raw
+                    span = st["hi"] - st["lo"]
+                    if abs(span) > 1e-6:
+                        value = max(0.0, min(1.0, (r - st["lo"]) / span))
+                    else:
+                        value = 0.0
                 else:
                     value = float(st["slider"])   # slider already reads low→high
                 self.osc_ctrl.send_value(f"/param/{module}/{param}", value)
@@ -157,14 +164,16 @@ class ConductorGUI:
 
         # Column header labels
         imgui.text_disabled("Param")
-        imgui.same_line(90)
+        imgui.same_line(60)
         imgui.text_disabled("Slider")
-        imgui.same_line(270)
+        imgui.same_line(240)
         imgui.text_disabled("Landmark")
-        imgui.same_line(450)
+        imgui.same_line(420)
         imgui.text_disabled("Use")
-        imgui.same_line(510)
-        imgui.text_disabled("Invert")
+        imgui.same_line(460)
+        imgui.text_disabled("Inv")
+        imgui.same_line(500)
+        imgui.text_disabled("Range")
         imgui.separator()
 
         for param, _default in params:
@@ -173,7 +182,7 @@ class ConductorGUI:
 
             # Param label
             imgui.text(param)
-            imgui.same_line(90)
+            imgui.same_line(60)
 
             # Slider (active in slider mode, greyed in landmark mode)
             self._begin_disabled(is_landmark)
@@ -188,7 +197,7 @@ class ConductorGUI:
                 st["slider"] = new_val
                 state_changed = True
 
-            imgui.same_line(270)
+            imgui.same_line(240)
 
             # Landmark combo (active in landmark mode, greyed in slider mode).
             # Live: the change takes effect on the next frame, no VM restart.
@@ -204,9 +213,14 @@ class ConductorGUI:
             self._end_disabled(not is_landmark)
             if c_changed:
                 st["landmark"] = routing_config.LANDMARKS[new_idx]
+                # The range was calibrated in the old landmark's space, so it's
+                # meaningless on the new one — reset to the full span.
+                st["lo"], st["hi"] = (
+                    routing_config.DEFAULT_LO, routing_config.DEFAULT_HI
+                )
                 state_changed = True
 
-            imgui.same_line(450)
+            imgui.same_line(420)
 
             # Mode checkbox: checked = landmark, unchecked = slider (default)
             m_changed, checked = imgui.checkbox(
@@ -216,7 +230,7 @@ class ConductorGUI:
                 st["mode"] = "landmark" if checked else "slider"
                 state_changed = True
 
-            imgui.same_line(510)
+            imgui.same_line(460)
 
             # Invert checkbox: flips the landmark (1 - value). Only meaningful in
             # landmark mode — the slider already reads low→high — so it's greyed
@@ -228,7 +242,42 @@ class ConductorGUI:
             self._end_disabled(not is_landmark)
             if i_changed:
                 st["invert"] = inverted
+                # Captures live in the invert-corrected space, so flipping invert
+                # invalidates them — reset to full span to recalibrate.
+                st["lo"], st["hi"] = (
+                    routing_config.DEFAULT_LO, routing_config.DEFAULT_HI
+                )
                 state_changed = True
+
+            # Range calibration (landmark mode only): capture the live raw value
+            # as the low/high edge of the working zone, mapped to the full 0..1
+            # param sweep. Shows the live position so you can aim before capturing.
+            if is_landmark:
+                raw = self.latest_landmarks.get(st["landmark"], 0.5)
+                # Show/capture the invert-corrected value, so what you see is what
+                # you pin: lo = Min (param min), hi = Max (param max). Always
+                # semantic because invert is already baked into r.
+                r = (1.0 - raw) if st["invert"] else raw
+                imgui.same_line(500)
+                imgui.text_disabled(f"{r:.2f}")
+                imgui.same_line()
+                if imgui.small_button(f"Min##{module}_{param}"):
+                    st["lo"] = r
+                    state_changed = True
+                imgui.same_line()
+                imgui.text_disabled(f"{st['lo']:.2f}")
+                imgui.same_line()
+                if imgui.small_button(f"Max##{module}_{param}"):
+                    st["hi"] = r
+                    state_changed = True
+                imgui.same_line()
+                imgui.text_disabled(f"{st['hi']:.2f}")
+                imgui.same_line()
+                if imgui.small_button(f"Rst##{module}_{param}"):
+                    st["lo"], st["hi"] = (
+                        routing_config.DEFAULT_LO, routing_config.DEFAULT_HI
+                    )
+                    state_changed = True
 
         imgui.spacing()
         imgui.separator()

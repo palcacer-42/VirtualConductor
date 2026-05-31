@@ -3,14 +3,18 @@
     "pitch": {
       "mode": "landmark",
       "slider": 0.0,
-      "landmark": "hand_right_index_y",
-      "invert": true
+      "landmark": "hand_left_middle_y",
+      "invert": true,
+      "lo": 0.0,
+      "hi": 1.0
     },
     "volume": {
       "mode": "slider",
       "slider": 0.12328767031431198,
       "landmark": "hand_left_index_y",
-      "invert": true
+      "invert": true,
+      "lo": 0.0,
+      "hi": 1.0
     }
   },
   "synth": {
@@ -18,13 +22,17 @@
       "mode": "slider",
       "slider": 0.7876712083816528,
       "landmark": "hand_right_index_y",
-      "invert": true
+      "invert": true,
+      "lo": 0.0,
+      "hi": 1.0
     },
     "cutoff": {
       "mode": "slider",
       "slider": 0.5,
       "landmark": "hand_left_index_y",
-      "invert": true
+      "invert": true,
+      "lo": 0.0,
+      "hi": 1.0
     }
   }
 }

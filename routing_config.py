@@ -21,6 +21,13 @@ DEFAULT_MODE = "slider"   # params start on the slider until the user ticks land
 DEFAULT_SLIDER = 0.5      # neutral, matches the seeded landmark center
 DEFAULT_INVERT = True     # default landmarks are all _y (top-down in MediaPipe),
                           # so up=more needs the flip — on by default to match it
+# Working range, measured on the invert-corrected signal: lo = the corrected
+# value mapped to the param MINIMUM, hi = the value mapped to MAXIMUM (Set Min/
+# Max are therefore always semantic). Full span by default (no calibration).
+# Because captures live in the invert-corrected space, the range resets whenever
+# invert is toggled.
+DEFAULT_LO = 0.0
+DEFAULT_HI = 1.0
 
 # Params each module exposes, with the landmark each one defaults to.
 MODULE_PARAMS = {
@@ -36,9 +43,9 @@ LANDMARKS = [f"hand_{s}_{f}_{a}" for s in SIDES for f in FINGERS for a in AXES]
 
 
 def load_state():
-    """Return {module: {param: {"mode", "slider", "landmark", "invert"}}}, filling
-    defaults for any missing/invalid entry so the GUI always gets a complete,
-    well-typed dict."""
+    """Return {module: {param: {"mode", "slider", "landmark", "invert", "lo",
+    "hi"}}}, filling defaults for any missing/invalid entry so the GUI always
+    gets a complete, well-typed dict."""
     data = {}
     if os.path.exists(STATE_PATH):
         try:
@@ -63,14 +70,24 @@ def load_state():
             if landmark not in LANDMARKS:
                 landmark = default_landmark
             invert = bool(saved.get("invert", DEFAULT_INVERT))
+            try:
+                lo = float(saved.get("lo", DEFAULT_LO))
+            except (TypeError, ValueError):
+                lo = DEFAULT_LO
+            try:
+                hi = float(saved.get("hi", DEFAULT_HI))
+            except (TypeError, ValueError):
+                hi = DEFAULT_HI
             state[module][param] = {
                 "mode": mode, "slider": slider,
                 "landmark": landmark, "invert": invert,
+                "lo": lo, "hi": hi,
             }
     return state
 
 
 def save_state(state):
-    """Persist {module: {param: {"mode", "slider", "landmark", "invert"}}}."""
+    """Persist {module: {param: {"mode", "slider", "landmark", "invert", "lo",
+    "hi"}}}."""
     with open(STATE_PATH, "w") as f:
         json.dump(state, f, indent=2)
