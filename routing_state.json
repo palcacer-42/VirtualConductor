@@ -2,21 +2,25 @@
   "theremin": {
     "pitch": {
       "mode": "slider",
-      "slider": 0.3904109597206116
+      "slider": 0.4794520437717438,
+      "landmark": "hand_right_index_y"
     },
     "volume": {
       "mode": "slider",
-      "slider": 0.2945205569267273
+      "slider": 0.12328767031431198,
+      "landmark": "hand_left_index_y"
     }
   },
   "synth": {
     "pitch": {
       "mode": "slider",
-      "slider": 0.7876712083816528
+      "slider": 0.7876712083816528,
+      "landmark": "hand_right_index_y"
     },
     "cutoff": {
       "mode": "slider",
-      "slider": 0.5
+      "slider": 0.5,
+      "landmark": "hand_left_index_y"
     }
   }
 }

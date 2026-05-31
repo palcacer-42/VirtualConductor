@@ -61,23 +61,20 @@ class ConductorGUI:
         self.chuck = ChuckController()
 
         # --- Routing State ---
-        # landmark choice per param lives in the .cfg files (ChucK reads it at
-        # startup); mode (slider/landmark) + slider position live in routing_state
-        # and are sent to ChucK live over OSC.
-        self.routing_landmarks = {
-            module: routing_config.load_routing(module)
-            for module in routing_config.MODULE_PARAMS
-        }
-        # Snapshot of what's on disk (.cfg) so we know when a landmark edit is
-        # unsaved — the Save buttons stay disabled until the two differ.
-        self.routing_landmarks_saved = {
-            module: dict(params) for module, params in self.routing_landmarks.items()
-        }
+        # Python owns all routing: per param it holds the mode (slider/landmark),
+        # the slider position, and the chosen landmark, then sends one resolved
+        # value to ChucK live over OSC. Everything persists in routing_state.
         self.routing_state = routing_config.load_state()
-        self.routing_msg = ""
 
-        # Control-plane OSC client (mode + slider). Targets the same endpoint
-        # ChucK listens on; landmark data is sent separately by the tracker.
+        # Last value seen for every landmark, updated each frame from the tracker.
+        # Held between frames so a param freezes (rather than snapping to 0) when
+        # its hand leaves view. Seeded to a neutral pose like ChucK used to.
+        self.latest_landmarks = {
+            lm: (0.0 if lm.endswith("_z") else 0.5)
+            for lm in routing_config.LANDMARKS
+        }
+
+        # OSC client for the resolved per-param values ChucK plays.
         self.osc_ctrl = OscController(
             self.osc_ip_buf,
             int(self.osc_port_buf) if self.osc_port_buf.isdigit() else 8000,
@@ -98,18 +95,22 @@ class ConductorGUI:
             imgui.internal.pop_item_flag()
 
     def _send_routing_osc(self):
-        """Push every param's mode + slider value to ChucK. Sent every frame:
-        idempotent and cheap, so it auto-resyncs whenever the VM (re)starts."""
+        """Resolve each param to a single value and push it to ChucK on
+        /param/<module>/<param>. Sent every frame: idempotent and cheap, so it
+        auto-resyncs whenever the VM (re)starts."""
         if not self.osc_enabled:
             return
         for module, params in routing_config.MODULE_PARAMS.items():
             for param, _default in params:
                 st = self.routing_state[module][param]
-                mode_flag = 1 if st["mode"] == "landmark" else 0
-                self.osc_ctrl.send_value(f"/mode/{module}/{param}", mode_flag)
-                # Slider reads left→right = low→high; the modules apply 1.0 - value,
-                # so invert here to keep the slider intuitive (landmarks stay as-is).
-                self.osc_ctrl.send_value(f"/slider/{module}/{param}", 1.0 - float(st["slider"]))
+                if st["mode"] == "landmark":
+                    # Modules apply 1.0 - value; landmarks go raw (as before).
+                    value = self.latest_landmarks.get(st["landmark"], 0.5)
+                else:
+                    # Slider reads left→right = low→high; pre-invert so the module's
+                    # 1.0 - value cancels out and the slider stays intuitive.
+                    value = 1.0 - float(st["slider"])
+                self.osc_ctrl.send_value(f"/param/{module}/{param}", value)
 
     def _render_instrument_windows(self):
         """One 'ChucK Scripts' window with a collapsible section per *active*
@@ -139,20 +140,17 @@ class ConductorGUI:
                 if expanded and self._render_instrument_section(module, params):
                     state_changed = True
 
-        if self.routing_msg:
-            imgui.text(self.routing_msg)
-
         imgui.end()
 
         if state_changed:
             routing_config.save_state(self.routing_state)
 
-        # Keep ChucK in sync with the current mode/slider state.
+        # Push each param's resolved value (slider or landmark) to ChucK.
         self._send_routing_osc()
 
     def _render_instrument_section(self, module, params):
-        """Render one instrument's param rows + Save buttons inside its header.
-        Returns True if a mode/slider value changed (so it gets persisted)."""
+        """Render one instrument's param rows.
+        Returns True if any routing value changed (so it gets persisted)."""
         state_changed = False
 
         # Column header labels
@@ -162,7 +160,7 @@ class ConductorGUI:
         imgui.same_line(270)
         imgui.text_disabled("Landmark")
         imgui.same_line(450)
-        imgui.text_disabled("Mode")
+        imgui.text_disabled("Use")
         imgui.separator()
 
         for param, _default in params:
@@ -188,10 +186,10 @@ class ConductorGUI:
 
             imgui.same_line(270)
 
-            # Landmark combo (active in landmark mode, greyed in slider mode)
-            current = self.routing_landmarks[module][param]
+            # Landmark combo (active in landmark mode, greyed in slider mode).
+            # Live: the change takes effect on the next frame, no VM restart.
             try:
-                idx = routing_config.LANDMARKS.index(current)
+                idx = routing_config.LANDMARKS.index(st["landmark"])
             except ValueError:
                 idx = 0
             self._begin_disabled(not is_landmark)
@@ -201,42 +199,20 @@ class ConductorGUI:
             )
             self._end_disabled(not is_landmark)
             if c_changed:
-                self.routing_landmarks[module][param] = routing_config.LANDMARKS[new_idx]
+                st["landmark"] = routing_config.LANDMARKS[new_idx]
+                state_changed = True
 
             imgui.same_line(450)
 
             # Mode checkbox: checked = landmark, unchecked = slider (default)
             m_changed, checked = imgui.checkbox(
-                f"landmark##{module}_{param}", is_landmark
+                f"##mode_{module}_{param}", is_landmark
             )
             if m_changed:
                 st["mode"] = "landmark" if checked else "slider"
                 state_changed = True
 
         imgui.spacing()
-
-        # Landmark choice is read by ChucK at VM startup, so it's saved
-        # explicitly (mode/slider are live and persist on their own). Save is
-        # only enabled while the selection differs from the .cfg on disk.
-        dirty = self.routing_landmarks[module] != self.routing_landmarks_saved[module]
-
-        self._begin_disabled(not dirty)
-        if imgui.button(f"Save Landmarks##{module}"):
-            routing_config.save_routing(module, self.routing_landmarks[module])
-            self.routing_landmarks_saved[module] = dict(self.routing_landmarks[module])
-            self.routing_msg = f"Saved {module} landmarks to .cfg"
-        if self.chuck.vm_running:
-            imgui.same_line()
-            if imgui.button(f"Save & Restart VM##{module}"):
-                routing_config.save_routing(module, self.routing_landmarks[module])
-                self.routing_landmarks_saved[module] = dict(self.routing_landmarks[module])
-                self.chuck.restart_vm()  # re-adds whatever effects were playing
-                self.routing_msg = f"Saved {module}, restarted VM"
-        self._end_disabled(not dirty)
-
-        if dirty and self.chuck.vm_running:
-            imgui.text_colored("Restart VM to apply landmark changes.", 1.0, 0.8, 0.2)
-
         imgui.separator()
         return state_changed
 
@@ -345,6 +321,11 @@ class ConductorGUI:
         return active_modules, cc_settings, osc_settings
 
     def render(self, frame_rgb, results, camera_warning=None):
+        # Refresh only the landmarks seen this frame; the rest hold their last
+        # value so params don't snap when a hand leaves view.
+        if results:
+            self.latest_landmarks.update(results.get("landmark_values", {}))
+
         self._update_texture(frame_rgb)
         vid_h, vid_w = frame_rgb.shape[:2]
 

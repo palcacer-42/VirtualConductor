@@ -8,7 +8,6 @@ from mediapipe.tasks.python import vision
 import numpy as np
 import os
 from midi_controller import MidiController
-from osc_controller import OscController
 from gesture_collector import normalize_hand
 from gesture_recognizer import GestureRecognizer
 
@@ -34,9 +33,6 @@ class HolisticTracker:
 
         # Initialize MIDI
         self.midi = MidiController()
-
-        # Initialize OSC
-        self.osc = OscController()
 
         # Initialize Gesture Recognizer
         self.gesture_recognizer = GestureRecognizer()
@@ -116,31 +112,41 @@ class HolisticTracker:
                 else:
                     holistic_data["left_hand"] = hand_landmarks
 
-        osc_active = osc_settings and osc_settings.get("enabled", True)
+        # Per-finger landmark values, keyed "hand_<side>_<finger>_<axis>" to match
+        # routing_config.LANDMARKS. The GUI reads these and decides per param
+        # whether to send the slider or the selected landmark to ChucK; only hands
+        # actually seen this frame appear here (the GUI holds the last value for
+        # the rest).
+        fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
+        landmark_values = {}
 
-        # Send MIDI/OSC — Left Hand
+        # MIDI — Left Hand
         if holistic_data["left_hand"]:
             index_y = 1.0 - holistic_data["left_hand"][8].y
             holistic_data["midi_values"]["left"] = int(index_y * 127)
             self.midi.send_control_change(0, cc_settings["left"], index_y)
 
-            if osc_active:
-                fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
-                for name, idx in fingers:
-                    pt = holistic_data["left_hand"][idx]
-                    self.osc.send_vector(f"/landmarks/hand/left/{name}", pt.x, pt.y, pt.z)
+            for name, idx in fingers:
+                pt = holistic_data["left_hand"][idx]
+                base = f"hand_left_{name}"
+                landmark_values[f"{base}_x"] = pt.x
+                landmark_values[f"{base}_y"] = pt.y
+                landmark_values[f"{base}_z"] = pt.z
 
-        # Send MIDI/OSC — Right Hand
+        # MIDI — Right Hand
         if holistic_data["right_hand"]:
             index_y = 1.0 - holistic_data["right_hand"][8].y
             holistic_data["midi_values"]["right"] = int(index_y * 127)
             self.midi.send_control_change(0, cc_settings["right"], index_y)
 
-            if osc_active:
-                fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
-                for name, idx in fingers:
-                    pt = holistic_data["right_hand"][idx]
-                    self.osc.send_vector(f"/landmarks/hand/right/{name}", pt.x, pt.y, pt.z)
+            for name, idx in fingers:
+                pt = holistic_data["right_hand"][idx]
+                base = f"hand_right_{name}"
+                landmark_values[f"{base}_x"] = pt.x
+                landmark_values[f"{base}_y"] = pt.y
+                landmark_values[f"{base}_z"] = pt.z
+
+        holistic_data["landmark_values"] = landmark_values
 
         # Gesture recognition
         if holistic_data["right_hand"]:

@@ -1,73 +1,68 @@
-// osc-router.ck — Routes landmark inputs to effect parameters.
-// Routing is read from chuck-scripts/config/<module>.cfg, one "param : landmark"
-// per line. Falls back to built-in defaults if a file or entry is missing.
-// The landmark name->value table lives in landmarks.ck (loaded before this file).
+// osc-router.ck — receives final parameter values from Python and writes them
+// straight to the effect globals.
+//
+// Python owns all routing: it decides per param whether to use the slider or a
+// landmark, resolves one value, and sends it on /param/<module>/<param>. ChucK
+// does no routing or landmark handling — it just plays the value it's given.
 
-// --- Effect parameter globals ---
+// --- Effect parameter globals (modules read these; declared here too so they
+// exist and sit at a neutral value before any module is added) ---
 global float g_theremin_pitch;
 global float g_theremin_volume;
 global float g_synth_pitch;
 global float g_synth_cutoff;
 
-// Config files live one level up from core/.
-me.dir() + "../config/" => string cfgDir;
+0.5 => g_theremin_pitch;
+0.5 => g_theremin_volume;
+0.5 => g_synth_pitch;
+0.5 => g_synth_cutoff;
 
-// Reads <param>'s landmark from the .cfg at <path>; returns <fallback> if the
-// file is missing or has no entry for <param>. Surrounding spaces are ignored.
-fun string route(string path, string param, string fallback) {
-    FileIO fio;
-    fio.open(path, FileIO.READ);
-    if (!fio.good()) {
-        <<< "[osc-router] no config at", path, "- default", param, "<-", fallback >>>;
-        return fallback;
+OscIn oin;
+OscMsg msg;
+8000 => oin.port;
+oin.listenAll();   // catch every address; we dispatch on the path ourselves
+
+<<< "[osc-router] listening on port", oin.port() >>>;
+
+// Split an OSC address into its non-empty path segments.
+// "/param/synth/pitch" -> ["param","synth","pitch"]
+fun string[] segments( string addr )
+{
+    string out[0];
+    addr => string rest;
+    while( rest.length() > 0 )
+    {
+        rest.find( "/" ) => int i;
+        if( i < 0 ) { out << rest; break; }   // last segment
+        if( i > 0 ) out << rest.substring( 0, i );
+        rest.substring( i + 1 ) => rest;
     }
+    return out;
+}
 
-    fallback => string result;
-    while (!fio.eof()) {
-        fio.readLine() => string line;
-        line.find(":") => int sep;
-        if (sep < 0) continue;                         // blank/comment/garbage line
-        line.substring(0, sep).trim() => string key;   // left of ':'  -> param
-        line.substring(sep + 1).trim() => string val;  // right of ':' -> landmark
-        if (key == param) {
-            val => result;
-            break;
+while( true )
+{
+    oin => now;
+    while( oin.recv( msg ) )
+    {
+        // /param/<module>/<param> carrying one float
+        segments( msg.address ) @=> string seg[];
+        if( seg.size() < 3 || seg[0] != "param" || msg.numArgs() < 1 ) continue;
+
+        seg[1] => string module;
+        seg[2] => string param;
+        msg.getFloat(0) => float v;
+
+        if( module == "theremin" )
+        {
+            if( param == "pitch" )  v => g_theremin_pitch;
+            else if( param == "volume" ) v => g_theremin_volume;
         }
-    }
-    fio.close();
-    return result;
-}
-
-// --- Resolve routing once at startup ---
-route(cfgDir + "theremin.cfg", "pitch",  "hand_right_index_y") => string thereminPitch;
-route(cfgDir + "theremin.cfg", "volume", "hand_left_index_y")  => string thereminVolume;
-route(cfgDir + "synth.cfg",    "pitch",  "hand_right_index_y") => string synthPitch;
-route(cfgDir + "synth.cfg",    "cutoff", "hand_left_index_y")  => string synthCutoff;
-
-<<< "[osc-router] theremin:  pitch <-", thereminPitch, " volume <-", thereminVolume >>>;
-<<< "[osc-router] synth:     pitch <-", synthPitch, " cutoff <-", synthCutoff >>>;
-
-// Pick this param's live value from its mode flag (1=landmark, 0=slider; an
-// unset key reads 0.0 -> slider, the default): the startup-resolved landmark
-// when set, otherwise the GUI slider. mode + slider arrive live over OSC.
-fun float source(string module, string param, string landmark) {
-    "mode." + module + "." + param => string modeKey;   // mode.<module>.<param>
-    module + "." + param           => string sliderKey; // <module>.<param>
-    if (Landmarks.value(modeKey) > 0.5)
-        return Landmarks.value(landmark);   // landmark mode
-    return Landmarks.value(sliderKey);      // slider mode (default)
-}
-
-// --- Drive params from their selected source each tick ---
-fun void updateRouting() {
-    while(true) {
-        source("theremin", "pitch",  thereminPitch)  => g_theremin_pitch;
-        source("theremin", "volume", thereminVolume) => g_theremin_volume;
-        source("synth",    "pitch",  synthPitch)     => g_synth_pitch;
-        source("synth",    "cutoff", synthCutoff)    => g_synth_cutoff;
-        1::ms => now;
+        else if( module == "synth" )
+        {
+            if( param == "pitch" )  v => g_synth_pitch;
+            else if( param == "cutoff" ) v => g_synth_cutoff;
+        }
+        // else: unknown module/param — ignored
     }
 }
-spork ~ updateRouting();
-
-while(true) { 1::second => now; }
