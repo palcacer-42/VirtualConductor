@@ -1,26 +1,30 @@
 {
   "theremin": {
     "pitch": {
-      "mode": "slider",
-      "slider": 0.4794520437717438,
-      "landmark": "hand_right_index_y"
+      "mode": "landmark",
+      "slider": 0.0,
+      "landmark": "hand_right_index_y",
+      "invert": true
     },
     "volume": {
       "mode": "slider",
       "slider": 0.12328767031431198,
-      "landmark": "hand_left_index_y"
+      "landmark": "hand_left_index_y",
+      "invert": true
     }
   },
   "synth": {
     "pitch": {
       "mode": "slider",
       "slider": 0.7876712083816528,
-      "landmark": "hand_right_index_y"
+      "landmark": "hand_right_index_y",
+      "invert": true
     },
     "cutoff": {
       "mode": "slider",
       "slider": 0.5,
-      "landmark": "hand_left_index_y"
+      "landmark": "hand_left_index_y",
+      "invert": true
     }
   }
 }

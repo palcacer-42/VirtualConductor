@@ -19,6 +19,8 @@ STATE_PATH = os.path.join(
 
 DEFAULT_MODE = "slider"   # params start on the slider until the user ticks landmark
 DEFAULT_SLIDER = 0.5      # neutral, matches the seeded landmark center
+DEFAULT_INVERT = True     # default landmarks are all _y (top-down in MediaPipe),
+                          # so up=more needs the flip — on by default to match it
 
 # Params each module exposes, with the landmark each one defaults to.
 MODULE_PARAMS = {
@@ -34,9 +36,9 @@ LANDMARKS = [f"hand_{s}_{f}_{a}" for s in SIDES for f in FINGERS for a in AXES]
 
 
 def load_state():
-    """Return {module: {param: {"mode", "slider", "landmark"}}}, filling defaults
-    for any missing/invalid entry so the GUI always gets a complete, well-typed
-    dict."""
+    """Return {module: {param: {"mode", "slider", "landmark", "invert"}}}, filling
+    defaults for any missing/invalid entry so the GUI always gets a complete,
+    well-typed dict."""
     data = {}
     if os.path.exists(STATE_PATH):
         try:
@@ -60,13 +62,15 @@ def load_state():
             landmark = saved.get("landmark", default_landmark)
             if landmark not in LANDMARKS:
                 landmark = default_landmark
+            invert = bool(saved.get("invert", DEFAULT_INVERT))
             state[module][param] = {
-                "mode": mode, "slider": slider, "landmark": landmark
+                "mode": mode, "slider": slider,
+                "landmark": landmark, "invert": invert,
             }
     return state
 
 
 def save_state(state):
-    """Persist {module: {param: {"mode", "slider", "landmark"}}}."""
+    """Persist {module: {param: {"mode", "slider", "landmark", "invert"}}}."""
     with open(STATE_PATH, "w") as f:
         json.dump(state, f, indent=2)

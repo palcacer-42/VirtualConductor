@@ -100,16 +100,18 @@ class ConductorGUI:
         auto-resyncs whenever the VM (re)starts."""
         if not self.osc_enabled:
             return
+        # Contract: ChucK maps 0 -> param minimum, 1 -> maximum, no inversion.
+        # All axis flips happen here so the value on the wire is always normalized.
         for module, params in routing_config.MODULE_PARAMS.items():
             for param, _default in params:
                 st = self.routing_state[module][param]
                 if st["mode"] == "landmark":
-                    # Modules apply 1.0 - value; landmarks go raw (as before).
                     value = self.latest_landmarks.get(st["landmark"], 0.5)
+                    if st["invert"]:
+                        # e.g. MediaPipe Y is top-down, so hand-up=more needs 1-y.
+                        value = 1.0 - value
                 else:
-                    # Slider reads left→right = low→high; pre-invert so the module's
-                    # 1.0 - value cancels out and the slider stays intuitive.
-                    value = 1.0 - float(st["slider"])
+                    value = float(st["slider"])   # slider already reads low→high
                 self.osc_ctrl.send_value(f"/param/{module}/{param}", value)
 
     def _render_instrument_windows(self):
@@ -161,6 +163,8 @@ class ConductorGUI:
         imgui.text_disabled("Landmark")
         imgui.same_line(450)
         imgui.text_disabled("Use")
+        imgui.same_line(510)
+        imgui.text_disabled("Invert")
         imgui.separator()
 
         for param, _default in params:
@@ -210,6 +214,20 @@ class ConductorGUI:
             )
             if m_changed:
                 st["mode"] = "landmark" if checked else "slider"
+                state_changed = True
+
+            imgui.same_line(510)
+
+            # Invert checkbox: flips the landmark (1 - value). Only meaningful in
+            # landmark mode — the slider already reads low→high — so it's greyed
+            # out otherwise.
+            self._begin_disabled(not is_landmark)
+            i_changed, inverted = imgui.checkbox(
+                f"##invert_{module}_{param}", st["invert"]
+            )
+            self._end_disabled(not is_landmark)
+            if i_changed:
+                st["invert"] = inverted
                 state_changed = True
 
         imgui.spacing()

@@ -40,9 +40,10 @@ fun void interpolate() {
     2000.0 => float currentCutoff;
 
     while(true) {
-        // Compute targets from globals each tick
-        200 + ((1.0 - g_synth_pitch) * 600) => float targetFreq;
-        expMap(1.0 - g_synth_cutoff, minCutoff, maxCutoff) => float targetCutoff;
+        // Compute targets from globals each tick (0 -> min, 1 -> max; Python
+        // already normalized and applied any axis inversion).
+        200 + (g_synth_pitch * 600) => float targetFreq;
+        expMap(g_synth_cutoff, minCutoff, maxCutoff) => float targetCutoff;
 
         // Smooth toward targets
         currentFreq + (targetFreq - currentFreq) * smoothing => currentFreq;

@@ -25,9 +25,10 @@ SinOsc vibrato => blackhole;
 
 fun void interpolate() {
     while(true) {
-        // Compute targets from globals each tick
-        200 + ((1.0 - g_theremin_pitch) * 600) => float targetFreq;
-        (1.0 - g_theremin_volume) => float targetGain;
+        // Compute targets from globals each tick (0 -> min, 1 -> max; Python
+        // already normalized and applied any axis inversion).
+        200 + (g_theremin_pitch * 600) => float targetFreq;
+        g_theremin_volume => float targetGain;
 
         // Smooth toward targets
         s.freq() + (targetFreq - s.freq()) * smoothing => float currentFreq;
