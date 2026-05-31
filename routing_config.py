@@ -19,6 +19,8 @@ STATE_PATH = os.path.join(
 
 DEFAULT_MODE = "slider"   # params start on the slider until the user ticks landmark
 DEFAULT_SLIDER = 0.5      # neutral, matches the seeded landmark center
+DEFAULT_EXP = False       # Exp curve is a feel knob, applied in Python to the
+                          # final 0..1; off by default (linear)
 DEFAULT_INVERT = True     # default landmarks are all _y (top-down in MediaPipe),
                           # so up=more needs the flip — on by default to match it
 # Working range, measured on the invert-corrected signal: lo = the corrected
@@ -43,7 +45,7 @@ LANDMARKS = [f"hand_{s}_{f}_{a}" for s in SIDES for f in FINGERS for a in AXES]
 
 
 def load_state():
-    """Return {module: {param: {"mode", "slider", "landmark", "invert", "lo",
+    """Return {module: {param: {"mode", "slider", "landmark", "invert", "exp", "lo",
     "hi"}}}, filling defaults for any missing/invalid entry so the GUI always
     gets a complete, well-typed dict."""
     data = {}
@@ -70,6 +72,7 @@ def load_state():
             if landmark not in LANDMARKS:
                 landmark = default_landmark
             invert = bool(saved.get("invert", DEFAULT_INVERT))
+            exp = bool(saved.get("exp", DEFAULT_EXP))
             try:
                 lo = float(saved.get("lo", DEFAULT_LO))
             except (TypeError, ValueError):
@@ -81,13 +84,13 @@ def load_state():
             state[module][param] = {
                 "mode": mode, "slider": slider,
                 "landmark": landmark, "invert": invert,
-                "lo": lo, "hi": hi,
+                "exp": exp, "lo": lo, "hi": hi,
             }
     return state
 
 
 def save_state(state):
-    """Persist {module: {param: {"mode", "slider", "landmark", "invert", "lo",
-    "hi"}}}."""
+    """Persist {module: {param: {"mode", "slider", "landmark", "invert", "exp",
+    "lo", "hi"}}}."""
     with open(STATE_PATH, "w") as f:
         json.dump(state, f, indent=2)

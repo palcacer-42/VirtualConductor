@@ -1,18 +1,20 @@
 {
   "theremin": {
     "pitch": {
-      "mode": "landmark",
-      "slider": 0.0,
-      "landmark": "hand_left_middle_y",
+      "mode": "slider",
+      "slider": 0.5,
+      "landmark": "hand_right_index_y",
       "invert": true,
+      "exp": false,
       "lo": 0.0,
       "hi": 1.0
     },
     "volume": {
       "mode": "slider",
-      "slider": 0.12328767031431198,
+      "slider": 0.5,
       "landmark": "hand_left_index_y",
       "invert": true,
+      "exp": false,
       "lo": 0.0,
       "hi": 1.0
     }
@@ -20,9 +22,10 @@
   "synth": {
     "pitch": {
       "mode": "slider",
-      "slider": 0.7876712083816528,
+      "slider": 0.5,
       "landmark": "hand_right_index_y",
       "invert": true,
+      "exp": false,
       "lo": 0.0,
       "hi": 1.0
     },
@@ -31,6 +34,7 @@
       "slider": 0.5,
       "landmark": "hand_left_index_y",
       "invert": true,
+      "exp": false,
       "lo": 0.0,
       "hi": 1.0
     }

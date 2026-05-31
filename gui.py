@@ -2,6 +2,8 @@
 GUI — Dear ImGui interface for Virtual Conductor.
 """
 
+import math
+
 import cv2
 import glfw
 import imgui
@@ -14,6 +16,10 @@ from gesture_collector import GestureCollector
 from chuck_controller import ChuckController
 from osc_controller import OscController
 import routing_config
+
+# Strength of the optional per-param "Exp" feel curve (normalized exponential
+# y = (e^(k·x) − 1)/(e^k − 1)). Higher k = stronger bend. Tune by ear.
+EXP_K = 2.0
 
 
 class ConductorGUI:
@@ -119,6 +125,10 @@ class ConductorGUI:
                         value = 0.0
                 else:
                     value = float(st["slider"])   # slider already reads low→high
+                if st["exp"]:
+                    # Feel knob: bend the final 0..1 through a normalized exp curve
+                    # (same for slider and landmark). ChucK still maps linearly.
+                    value = (math.exp(EXP_K * value) - 1.0) / (math.exp(EXP_K) - 1.0)
                 self.osc_ctrl.send_value(f"/param/{module}/{param}", value)
 
     def _render_instrument_windows(self):
@@ -174,6 +184,8 @@ class ConductorGUI:
         imgui.text_disabled("Inv")
         imgui.same_line(500)
         imgui.text_disabled("Range")
+        imgui.same_line(750)
+        imgui.text_disabled("Exp")
         imgui.separator()
 
         for param, _default in params:
@@ -249,35 +261,42 @@ class ConductorGUI:
                 )
                 state_changed = True
 
-            # Range calibration (landmark mode only): capture the live raw value
-            # as the low/high edge of the working zone, mapped to the full 0..1
-            # param sweep. Shows the live position so you can aim before capturing.
-            if is_landmark:
-                raw = self.latest_landmarks.get(st["landmark"], 0.5)
-                # Show/capture the invert-corrected value, so what you see is what
-                # you pin: lo = Min (param min), hi = Max (param max). Always
-                # semantic because invert is already baked into r.
-                r = (1.0 - raw) if st["invert"] else raw
-                imgui.same_line(500)
-                imgui.text_disabled(f"{r:.2f}")
-                imgui.same_line()
-                if imgui.small_button(f"Min##{module}_{param}"):
-                    st["lo"] = r
-                    state_changed = True
-                imgui.same_line()
-                imgui.text_disabled(f"{st['lo']:.2f}")
-                imgui.same_line()
-                if imgui.small_button(f"Max##{module}_{param}"):
-                    st["hi"] = r
-                    state_changed = True
-                imgui.same_line()
-                imgui.text_disabled(f"{st['hi']:.2f}")
-                imgui.same_line()
-                if imgui.small_button(f"Rst##{module}_{param}"):
-                    st["lo"], st["hi"] = (
-                        routing_config.DEFAULT_LO, routing_config.DEFAULT_HI
-                    )
-                    state_changed = True
+            # Range calibration: always shown, greyed out unless this param is in
+            # landmark mode (like Inv). Min/Max capture the live invert-corrected
+            # value (lo = param min, hi = param max); the readout shows it live.
+            raw = self.latest_landmarks.get(st["landmark"], 0.5)
+            r = (1.0 - raw) if st["invert"] else raw
+            imgui.same_line(500)
+            self._begin_disabled(not is_landmark)
+            imgui.text_disabled(f"{r:.2f}")
+            imgui.same_line()
+            if imgui.small_button(f"Min##{module}_{param}"):
+                st["lo"] = r
+                state_changed = True
+            imgui.same_line()
+            imgui.text_disabled(f"{st['lo']:.2f}")
+            imgui.same_line()
+            if imgui.small_button(f"Max##{module}_{param}"):
+                st["hi"] = r
+                state_changed = True
+            imgui.same_line()
+            imgui.text_disabled(f"{st['hi']:.2f}")
+            imgui.same_line()
+            if imgui.small_button(f"Rst##{module}_{param}"):
+                st["lo"], st["hi"] = (
+                    routing_config.DEFAULT_LO, routing_config.DEFAULT_HI
+                )
+                state_changed = True
+            self._end_disabled(not is_landmark)
+
+            # Exp checkbox: bends the final 0..1 through a feel curve. Applies to
+            # both slider and landmark, so it stays enabled in both modes. Fixed
+            # column after the range group.
+            imgui.same_line(750)
+            e_changed, exp_on = imgui.checkbox(f"##exp_{module}_{param}", st["exp"])
+            if e_changed:
+                st["exp"] = exp_on
+                state_changed = True
 
         imgui.spacing()
         imgui.separator()
