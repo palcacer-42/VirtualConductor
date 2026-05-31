@@ -3,5 +3,6 @@ __pycache__/
 venv/
 .claude/
 imgui.ini
+routing_state.json
 gestures/dataset.json
 gestures/*.pkl
