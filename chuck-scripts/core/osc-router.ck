@@ -12,10 +12,56 @@ global float g_theremin_volume;
 global float g_synth_pitch;
 global float g_synth_cutoff;
 
+// granulator — every param is a normalized 0..1 value; granulator.ck maps each
+// into its [MIN, MAX] range.
+global float g_granulator_grainsize;
+global float g_granulator_density;
+global float g_granulator_position;
+global float g_granulator_posspray;
+global float g_granulator_panspray;
+global float g_granulator_octaveup;
+global float g_granulator_octavedown;
+global float g_granulator_pitchrange;
+global float g_granulator_pitchprob;
+global float g_granulator_finerange;
+global float g_granulator_fineprob;
+global float g_granulator_thresh;
+global float g_granulator_attack;
+global float g_granulator_release;
+global float g_granulator_delayleft;
+global float g_granulator_delayright;
+global float g_granulator_feedback;
+global float g_granulator_delaymix;
+global float g_granulator_reverbmix;
+global float g_granulator_inputgain;
+global float g_granulator_mastervol;
+
 0.5 => g_theremin_pitch;
 0.5 => g_theremin_volume;
 0.5 => g_synth_pitch;
 0.5 => g_synth_cutoff;
+
+0.5 => g_granulator_grainsize;
+0.5 => g_granulator_density;
+0.5 => g_granulator_position;
+0.5 => g_granulator_posspray;
+0.5 => g_granulator_panspray;
+0.5 => g_granulator_octaveup;
+0.5 => g_granulator_octavedown;
+0.5 => g_granulator_pitchrange;
+0.5 => g_granulator_pitchprob;
+0.5 => g_granulator_finerange;
+0.5 => g_granulator_fineprob;
+0.5 => g_granulator_thresh;
+0.5 => g_granulator_attack;
+0.5 => g_granulator_release;
+0.5 => g_granulator_delayleft;
+0.5 => g_granulator_delayright;
+0.5 => g_granulator_feedback;
+0.5 => g_granulator_delaymix;
+0.5 => g_granulator_reverbmix;
+0.5 => g_granulator_inputgain;
+0.5 => g_granulator_mastervol;
 
 OscIn oin;
 OscMsg msg;
@@ -62,6 +108,30 @@ while( true )
         {
             if( param == "pitch" )  v => g_synth_pitch;
             else if( param == "cutoff" ) v => g_synth_cutoff;
+        }
+        else if( module == "granulator" )
+        {
+            if(      param == "grainsize" )  v => g_granulator_grainsize;
+            else if( param == "density" )    v => g_granulator_density;
+            else if( param == "position" )   v => g_granulator_position;
+            else if( param == "posspray" )   v => g_granulator_posspray;
+            else if( param == "panspray" )   v => g_granulator_panspray;
+            else if( param == "octaveup" )   v => g_granulator_octaveup;
+            else if( param == "octavedown" ) v => g_granulator_octavedown;
+            else if( param == "pitchrange" ) v => g_granulator_pitchrange;
+            else if( param == "pitchprob" )  v => g_granulator_pitchprob;
+            else if( param == "finerange" )  v => g_granulator_finerange;
+            else if( param == "fineprob" )   v => g_granulator_fineprob;
+            else if( param == "thresh" )     v => g_granulator_thresh;
+            else if( param == "attack" )     v => g_granulator_attack;
+            else if( param == "release" )    v => g_granulator_release;
+            else if( param == "delayleft" )  v => g_granulator_delayleft;
+            else if( param == "delayright" ) v => g_granulator_delayright;
+            else if( param == "feedback" )   v => g_granulator_feedback;
+            else if( param == "delaymix" )   v => g_granulator_delaymix;
+            else if( param == "reverbmix" )  v => g_granulator_reverbmix;
+            else if( param == "inputgain" )  v => g_granulator_inputgain;
+            else if( param == "mastervol" )  v => g_granulator_mastervol;
         }
         // else: unknown module/param — ignored
     }

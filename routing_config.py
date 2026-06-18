@@ -35,6 +35,37 @@ DEFAULT_HI = 1.0
 MODULE_PARAMS = {
     "theremin": [("pitch", "hand_right_index_y"), ("volume", "hand_left_index_y")],
     "synth":    [("pitch", "hand_right_index_y"), ("cutoff", "hand_left_index_y")],
+    # Granulator: every param exposed. The landmark is only the default used if
+    # the user switches that param to landmark mode — all start on the slider.
+    "granulator": [
+        # grain
+        ("grainsize",  "hand_right_index_y"),
+        ("density",    "hand_left_index_y"),
+        ("position",   "hand_right_thumb_y"),
+        ("posspray",   "hand_left_thumb_y"),
+        ("panspray",   "hand_right_middle_y"),
+        # pitch
+        ("octaveup",   "hand_right_ring_y"),
+        ("octavedown", "hand_left_ring_y"),
+        ("pitchrange", "hand_right_pinky_y"),
+        ("pitchprob",  "hand_left_pinky_y"),
+        ("finerange",  "hand_right_middle_x"),
+        ("fineprob",   "hand_left_middle_x"),
+        # limiter
+        ("thresh",     "hand_right_thumb_x"),
+        ("attack",     "hand_left_thumb_x"),
+        ("release",    "hand_right_index_x"),
+        # delay
+        ("delayleft",  "hand_left_index_x"),
+        ("delayright", "hand_right_ring_x"),
+        ("feedback",   "hand_left_ring_x"),
+        ("delaymix",   "hand_right_pinky_x"),
+        # reverb
+        ("reverbmix",  "hand_left_pinky_x"),
+        # output
+        ("inputgain",  "hand_left_middle_y"),
+        ("mastervol",  "hand_right_pinky_z"),
+    ],
 }
 
 # All selectable landmarks — must match the table in landmarks.ck.

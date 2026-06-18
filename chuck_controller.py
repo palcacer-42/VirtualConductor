@@ -10,8 +10,9 @@ from collections import deque
 
 
 EFFECTS = {
-    "Theremin": "chuck-scripts/modules/theremin.ck",
-    "Synth":    "chuck-scripts/modules/synth.ck",
+    "Theremin":   "chuck-scripts/modules/theremin.ck",
+    "Synth":      "chuck-scripts/modules/synth.ck",
+    "Granulator": "chuck-scripts/modules/granulator.ck",
 }
 
 
