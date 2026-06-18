@@ -12,6 +12,9 @@ global float g_theremin_volume;
 global float g_synth_pitch;
 global float g_synth_cutoff;
 
+// theorbo (fake-theorbo.ck) — shared input source level
+global float g_theorbo_inputgain;
+
 // granulator — every param is a normalized 0..1 value; granulator.ck maps each
 // into its [MIN, MAX] range.
 global float g_granulator_grainsize;
@@ -33,13 +36,14 @@ global float g_granulator_delayright;
 global float g_granulator_feedback;
 global float g_granulator_delaymix;
 global float g_granulator_reverbmix;
-global float g_granulator_inputgain;
 global float g_granulator_mastervol;
 
 0.5 => g_theremin_pitch;
 0.5 => g_theremin_volume;
 0.5 => g_synth_pitch;
 0.5 => g_synth_cutoff;
+
+0.5 => g_theorbo_inputgain;
 
 0.5 => g_granulator_grainsize;
 0.5 => g_granulator_density;
@@ -60,7 +64,6 @@ global float g_granulator_mastervol;
 0.5 => g_granulator_feedback;
 0.5 => g_granulator_delaymix;
 0.5 => g_granulator_reverbmix;
-0.5 => g_granulator_inputgain;
 0.5 => g_granulator_mastervol;
 
 OscIn oin;
@@ -109,6 +112,10 @@ while( true )
             if( param == "pitch" )  v => g_synth_pitch;
             else if( param == "cutoff" ) v => g_synth_cutoff;
         }
+        else if( module == "theorbo" )
+        {
+            if( param == "inputgain" )  v => g_theorbo_inputgain;
+        }
         else if( module == "granulator" )
         {
             if(      param == "grainsize" )  v => g_granulator_grainsize;
@@ -130,7 +137,6 @@ while( true )
             else if( param == "feedback" )   v => g_granulator_feedback;
             else if( param == "delaymix" )   v => g_granulator_delaymix;
             else if( param == "reverbmix" )  v => g_granulator_reverbmix;
-            else if( param == "inputgain" )  v => g_granulator_inputgain;
             else if( param == "mastervol" )  v => g_granulator_mastervol;
         }
         // else: unknown module/param — ignored

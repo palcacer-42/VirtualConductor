@@ -138,13 +138,17 @@ class ConductorGUI:
 
         imgui.begin("Active ChucK Scripts")
 
-        # Only instruments currently added to the VM get a routing section.
         # MODULE_PARAMS keys are lowercase ("synth"); ChucK effect names are
-        # capitalized ("Synth").
-        active = [
+        # capitalized ("Synth"). Theorbo is the always-on input source (a core
+        # shred, not an add/remove effect), so it shows whenever the VM runs;
+        # other instruments appear only once added to the VM.
+        active = []
+        if self.chuck.vm_running and "theorbo" in routing_config.MODULE_PARAMS:
+            active.append(("theorbo", routing_config.MODULE_PARAMS["theorbo"]))
+        active += [
             (module, params)
             for module, params in routing_config.MODULE_PARAMS.items()
-            if self.chuck.is_active(module.capitalize())
+            if module != "theorbo" and self.chuck.is_active(module.capitalize())
         ]
 
         if not active:
@@ -152,8 +156,10 @@ class ConductorGUI:
         else:
             for module, params in active:
                 # The triangle on a collapsing header minimizes/expands the section.
+                # Theorbo is the input source — show it as "Input".
+                label = "Input" if module == "theorbo" else module.capitalize()
                 header = imgui.collapsing_header(
-                    module.capitalize(), flags=imgui.TREE_NODE_DEFAULT_OPEN
+                    label, flags=imgui.TREE_NODE_DEFAULT_OPEN
                 )
                 expanded = header[0] if isinstance(header, tuple) else header
                 if expanded and self._render_instrument_section(module, params):

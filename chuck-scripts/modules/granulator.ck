@@ -1,21 +1,19 @@
 // granulator.ck — Pure DSP. Reads all params from globals set by osc-router.ck.
 // Python sends each param normalized 0..1 on /param/granulator/<param>; this
 // shred maps every 0..1 value into its [MIN, MAX] range. Run via the VM, not
-// directly. (Replace SndBuf with adc when real mic is ready.)
+// directly. Audio input is the shared g_mic bus from core/fake-theorbo.ck.
 
-SndBuf input => Gain inputGain => dac;
-0.5 => inputGain.gain;
-me.dir() + "/../../chuck-test/samples/tiorba.wav" => input.read;
-1 => input.loop;
-1.0 => input.rate;
+// audio input comes from the shared mic bus (core/fake-theorbo.ck); input level
+// is set there, not per fx module.
+global Gain g_mic;
 
 // dynamics processor — reduces transients before recording into LiSa
-// to bypass: replace 'limiter' with 'input' on the LiSa line below
-input => Dyno limiter;
+// to bypass: replace 'limiter' with 'g_mic' on the LiSa line below
+g_mic => Dyno limiter;
 limiter.limit();
 
 // circular buffer
-// ** bypass limiter: change 'limiter =>' to 'input =>' on the next line **
+// ** bypass limiter: change 'limiter =>' to 'g_mic =>' on the next line **
 limiter => LiSa2 grainBuffer => blackhole;
 // ping pong delay (before master volume)
 DelayL delL, delR;
@@ -90,7 +88,6 @@ delR => wetR => reverbR;
 50::ms  => dur   DYNO_RELEASE_MIN; 1000::ms => dur   DYNO_RELEASE_MAX;
 0.1     => float DYNO_THRESH_MIN;  1.0      => float DYNO_THRESH_MAX;
 0.0     => float MASTER_VOL_MIN;   2.0      => float MASTER_VOL_MAX;
-0.0     => float INPUT_GAIN_MIN;   1.0      => float INPUT_GAIN_MAX;
 0.0     => float PAN_SPRAY_MIN;    0.5      => float PAN_SPRAY_MAX;
 50::ms  => dur   DELAY_TIME_MIN;   1000::ms => dur   DELAY_TIME_MAX;
 0.0     => float DELAY_FB_MIN;     0.95     => float DELAY_FB_MAX;
@@ -173,10 +170,6 @@ fun void setPitchRange(float val) {
 }
 fun void setPitchProb(float val) {
     Math.max(Math.min(val, PITCH_PROB_MAX), PITCH_PROB_MIN) => pitchProb;
-}
-
-fun void setInputGain(float val) {
-    Math.max(Math.min(val, INPUT_GAIN_MAX), INPUT_GAIN_MIN) => inputGain.gain;
 }
 
 fun void setMasterVol(float val) {
@@ -270,7 +263,6 @@ global float g_granulator_delayright;
 global float g_granulator_feedback;
 global float g_granulator_delaymix;
 global float g_granulator_reverbmix;
-global float g_granulator_inputgain;
 global float g_granulator_mastervol;
 
 // map a normalized 0..1 into a float range
@@ -307,7 +299,6 @@ fun void oscControl() {
         // reverb
         setReverbMix( mapF(g_granulator_reverbmix, REVERB_MIX_MIN, REVERB_MIX_MAX) );
         // output
-        setInputGain( mapF(g_granulator_inputgain, INPUT_GAIN_MIN, INPUT_GAIN_MAX) );
         setMasterVol( mapF(g_granulator_mastervol, MASTER_VOL_MIN, MASTER_VOL_MAX) );
 
         10::ms => now;

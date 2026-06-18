@@ -33,7 +33,8 @@ class ChuckController:
         self.log.append("[VM] Starting ChucK VM...")
         self._vm_proc = subprocess.Popen(
             ["chuck", "--loop",
-             "chuck-scripts/core/osc-router.ck"],
+             "chuck-scripts/core/osc-router.ck",
+             "chuck-scripts/core/fake-theorbo.ck"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

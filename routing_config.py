@@ -35,6 +35,8 @@ DEFAULT_HI = 1.0
 MODULE_PARAMS = {
     "theremin": [("pitch", "hand_right_index_y"), ("volume", "hand_left_index_y")],
     "synth":    [("pitch", "hand_right_index_y"), ("cutoff", "hand_left_index_y")],
+    # Theorbo: the shared input source (always running). One param = input level.
+    "theorbo":  [("inputgain", "hand_left_index_y")],
     # Granulator: every param exposed. The landmark is only the default used if
     # the user switches that param to landmark mode — all start on the slider.
     "granulator": [
@@ -63,7 +65,6 @@ MODULE_PARAMS = {
         # reverb
         ("reverbmix",  "hand_left_pinky_x"),
         # output
-        ("inputgain",  "hand_left_middle_y"),
         ("mastervol",  "hand_right_pinky_z"),
     ],
 }
