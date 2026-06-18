@@ -1,9 +1,9 @@
 // granulator.ck — Pure DSP. Reads all params from globals set by osc-router.ck.
 // Python sends each param normalized 0..1 on /param/granulator/<param>; this
 // shred maps every 0..1 value into its [MIN, MAX] range. Run via the VM, not
-// directly. Audio input is the shared g_mic bus from core/fake-theorbo.ck.
+// directly. Audio input is the shared g_mic bus from core/input.ck.
 
-// audio input comes from the shared mic bus (core/fake-theorbo.ck); input level
+// audio input comes from the shared mic bus (core/input.ck); input level
 // is set there, not per fx module.
 global Gain g_mic;
 

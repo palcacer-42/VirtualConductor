@@ -4,5 +4,6 @@ venv/
 .claude/
 imgui.ini
 routing_state.json
+input_source.json
 gestures/dataset.json
 gestures/*.pkl

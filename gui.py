@@ -72,6 +72,10 @@ class ConductorGUI:
         # value to ChucK live over OSC. Everything persists in routing_state.
         self.routing_state = routing_config.load_state()
 
+        # Input source selection ("fake-theorbo" or "mic"), persisted separately
+        # from the per-param routing state.
+        self.input_source = routing_config.load_input_source()
+
         # Last value seen for every landmark, updated each frame from the tracker.
         # Held between frames so a param freezes (rather than snapping to 0) when
         # its hand leaves view. Seeded to a neutral pose like ChucK used to.
@@ -130,6 +134,11 @@ class ConductorGUI:
                     # (same for slider and landmark). ChucK still maps linearly.
                     value = (math.exp(EXP_K * value) - 1.0) / (math.exp(EXP_K) - 1.0)
                 self.osc_ctrl.send_value(f"/param/{module}/{param}", value)
+        # Input source select: 0 = fake-theorbo, 1 = mic. Sent every frame like
+        # the params, so it auto-resyncs whenever the VM (re)starts.
+        self.osc_ctrl.send_value(
+            "/param/input/source", 1.0 if self.input_source == "mic" else 0.0
+        )
 
     def _render_instrument_windows(self):
         """One 'ChucK Scripts' window with a collapsible section per *active*
@@ -143,12 +152,12 @@ class ConductorGUI:
         # shred, not an add/remove effect), so it shows whenever the VM runs;
         # other instruments appear only once added to the VM.
         active = []
-        if self.chuck.vm_running and "theorbo" in routing_config.MODULE_PARAMS:
-            active.append(("theorbo", routing_config.MODULE_PARAMS["theorbo"]))
+        if self.chuck.vm_running and "input" in routing_config.MODULE_PARAMS:
+            active.append(("input", routing_config.MODULE_PARAMS["input"]))
         active += [
             (module, params)
             for module, params in routing_config.MODULE_PARAMS.items()
-            if module != "theorbo" and self.chuck.is_active(module.capitalize())
+            if module != "input" and self.chuck.is_active(module.capitalize())
         ]
 
         if not active:
@@ -157,7 +166,7 @@ class ConductorGUI:
             for module, params in active:
                 # The triangle on a collapsing header minimizes/expands the section.
                 # Theorbo is the input source — show it as "Input".
-                label = "Input" if module == "theorbo" else module.capitalize()
+                label = "Input" if module == "input" else module.capitalize()
                 header = imgui.collapsing_header(
                     label, flags=imgui.TREE_NODE_DEFAULT_OPEN
                 )
@@ -177,6 +186,47 @@ class ConductorGUI:
         """Render one instrument's param rows.
         Returns True if any routing value changed (so it gets persisted)."""
         state_changed = False
+
+        # Input is slider-only — no landmark routing for it.
+        if module == "input":
+            # Source selector: switch between the fake-theorbo (looped wav) and
+            # the live mic. Persisted on its own (not part of routing_state).
+            imgui.text("source")
+            imgui.same_line(60)
+            for src in routing_config.INPUT_SOURCES:
+                clicked = imgui.radio_button(
+                    f"{src}##input_source", self.input_source == src
+                )
+                if clicked and self.input_source != src:
+                    self.input_source = src
+                    routing_config.save_input_source(src)
+                imgui.same_line()
+            imgui.new_line()
+            imgui.separator()
+
+            imgui.text_disabled("Param")
+            imgui.same_line(60)
+            imgui.text_disabled("Slider")
+            imgui.same_line(240)
+            imgui.text_disabled("Exp")
+            imgui.separator()
+            for param, _default in params:
+                st = self.routing_state[module][param]
+                imgui.text(param)
+                imgui.same_line(60)
+                imgui.set_next_item_width(160)
+                s_changed, new_val = imgui.slider_float(
+                    f"##slider_{module}_{param}", st["slider"], 0.0, 1.0, format=""
+                )
+                if s_changed:
+                    st["slider"] = new_val
+                    state_changed = True
+                imgui.same_line(240)
+                e_changed, exp_on = imgui.checkbox(f"##exp_{module}_{param}", st["exp"])
+                if e_changed:
+                    st["exp"] = exp_on
+                    state_changed = True
+            return state_changed
 
         # Column header labels
         imgui.text_disabled("Param")

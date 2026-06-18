@@ -17,6 +17,14 @@ STATE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "routing_state.json"
 )
 
+# The input source ("fake-theorbo" or "mic") is a single setting, not a per-param
+# value, so it persists in its own small file.
+INPUT_SOURCE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "input_source.json"
+)
+INPUT_SOURCES = ["fake-theorbo", "mic"]
+DEFAULT_INPUT_SOURCE = "fake-theorbo"
+
 DEFAULT_MODE = "slider"   # params start on the slider until the user ticks landmark
 DEFAULT_SLIDER = 0.5      # neutral, matches the seeded landmark center
 DEFAULT_EXP = False       # Exp curve is a feel knob, applied in Python to the
@@ -35,8 +43,9 @@ DEFAULT_HI = 1.0
 MODULE_PARAMS = {
     "theremin": [("pitch", "hand_right_index_y"), ("volume", "hand_left_index_y")],
     "synth":    [("pitch", "hand_right_index_y"), ("cutoff", "hand_left_index_y")],
-    # Theorbo: the shared input source (always running). One param = input level.
-    "theorbo":  [("inputgain", "hand_left_index_y")],
+    # Input: the shared input source (always running). One param = the dry input
+    # monitor volume; the source choice (fake-theorbo vs mic) persists separately.
+    "input":    [("volume", "hand_left_index_y")],
     # Granulator: every param exposed. The landmark is only the default used if
     # the user switches that param to landmark mode — all start on the slider.
     "granulator": [
@@ -126,3 +135,23 @@ def save_state(state):
     "lo", "hi"}}}."""
     with open(STATE_PATH, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def load_input_source():
+    """Return the persisted input source ("fake-theorbo" or "mic"), defaulting to
+    fake-theorbo if unset or invalid."""
+    if os.path.exists(INPUT_SOURCE_PATH):
+        try:
+            with open(INPUT_SOURCE_PATH) as f:
+                source = json.load(f).get("source")
+            if source in INPUT_SOURCES:
+                return source
+        except (ValueError, OSError):
+            pass
+    return DEFAULT_INPUT_SOURCE
+
+
+def save_input_source(source):
+    """Persist the input source selection ("fake-theorbo" or "mic")."""
+    with open(INPUT_SOURCE_PATH, "w") as f:
+        json.dump({"source": source}, f, indent=2)

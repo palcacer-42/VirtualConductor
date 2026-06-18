@@ -12,8 +12,9 @@ global float g_theremin_volume;
 global float g_synth_pitch;
 global float g_synth_cutoff;
 
-// theorbo (fake-theorbo.ck) — shared input source level
-global float g_theorbo_inputgain;
+// input (input.ck) — shared input: monitor volume + source selection
+global float g_input_volume;
+global float g_input_source;   // 0 = fake-theorbo, 1 = mic
 
 // granulator — every param is a normalized 0..1 value; granulator.ck maps each
 // into its [MIN, MAX] range.
@@ -43,7 +44,8 @@ global float g_granulator_mastervol;
 0.5 => g_synth_pitch;
 0.5 => g_synth_cutoff;
 
-0.5 => g_theorbo_inputgain;
+0.5 => g_input_volume;
+0.0 => g_input_source;   // 0 = fake-theorbo (default), 1 = mic
 
 0.5 => g_granulator_grainsize;
 0.5 => g_granulator_density;
@@ -112,9 +114,10 @@ while( true )
             if( param == "pitch" )  v => g_synth_pitch;
             else if( param == "cutoff" ) v => g_synth_cutoff;
         }
-        else if( module == "theorbo" )
+        else if( module == "input" )
         {
-            if( param == "inputgain" )  v => g_theorbo_inputgain;
+            if(      param == "volume" )  v => g_input_volume;
+            else if( param == "source" )  v => g_input_source;
         }
         else if( module == "granulator" )
         {
