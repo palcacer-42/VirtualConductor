@@ -507,49 +507,48 @@ class ConductorGUI:
         imgui.image(self.video_texture, vid_w, vid_h)
         imgui.end()
 
-        # --- MIDI Configuration ---
-        imgui.begin("MIDI Configuration")
+        # --- Configuration (MIDI + OSC) ---
+        imgui.begin("Configuration")
 
-        # Device dropdown. The list is re-scanned on Refresh (and at startup),
-        # not every frame — enumerating hardware each frame is wasteful.
-        imgui.text("Device")
-        imgui.same_line()
-        imgui.set_next_item_width(220)
-        changed, self.midi_port_index = imgui.combo(
-            "##midi_device", self.midi_port_index, self.midi_ports
-        )
-        if changed:
-            port = self.midi_ports[self.midi_port_index]
-            self.midi.select(port)
-            routing_config.save_midi_port(port)
-        imgui.same_line()
-        if imgui.button("Refresh"):
-            self._refresh_midi_ports()
+        midi_hdr = imgui.collapsing_header("MIDI", flags=imgui.TREE_NODE_DEFAULT_OPEN)
+        if (midi_hdr[0] if isinstance(midi_hdr, tuple) else midi_hdr):
+            # Device dropdown. The list is re-scanned on Refresh (and at startup),
+            # not every frame — enumerating hardware each frame is wasteful.
+            imgui.text("Device")
+            imgui.same_line()
+            imgui.set_next_item_width(220)
+            changed, self.midi_port_index = imgui.combo(
+                "##midi_device", self.midi_port_index, self.midi_ports
+            )
+            if changed:
+                port = self.midi_ports[self.midi_port_index]
+                self.midi.select(port)
+                routing_config.save_midi_port(port)
+            imgui.same_line()
+            if imgui.button("Refresh"):
+                self._refresh_midi_ports()
 
-        imgui.separator()
+            # Live monitor of incoming messages, with a Clear button.
+            imgui.text("Incoming")
+            imgui.same_line()
+            if imgui.small_button("Clear"):
+                self.midi.clear_log()
+            # Snapshot the deque before iterating — the mido callback appends to
+            # it from a background thread.
+            imgui.begin_child("midi_log", 0, 150, border=True)
+            for line in list(self.midi.log):
+                imgui.text(line)
+            imgui.set_scroll_here_y(1.0)
+            imgui.end_child()
 
-        # Live monitor of incoming messages, with a Clear button.
-        imgui.text("Incoming")
-        imgui.same_line()
-        if imgui.small_button("Clear"):
-            self.midi.clear_log()
-        # Snapshot the deque before iterating — the mido callback appends to it
-        # from a background thread.
-        imgui.begin_child("midi_log", 0, 150, border=True)
-        for line in list(self.midi.log):
-            imgui.text(line)
-        imgui.set_scroll_here_y(1.0)
-        imgui.end_child()
+        osc_hdr = imgui.collapsing_header("OSC", flags=imgui.TREE_NODE_DEFAULT_OPEN)
+        if (osc_hdr[0] if isinstance(osc_hdr, tuple) else osc_hdr):
+            _, self.osc_enabled = imgui.checkbox("Enabled", self.osc_enabled)
+            imgui.set_next_item_width(140)
+            _, self.osc_ip_buf = imgui.input_text("IP", self.osc_ip_buf, 64)
+            imgui.set_next_item_width(80)
+            _, self.osc_port_buf = imgui.input_text("Port", self.osc_port_buf, 8)
 
-        imgui.end()
-
-        # --- OSC ---
-        imgui.begin("OSC")
-        _, self.osc_enabled = imgui.checkbox("Enabled", self.osc_enabled)
-        imgui.set_next_item_width(140)
-        _, self.osc_ip_buf = imgui.input_text("IP", self.osc_ip_buf, 64)
-        imgui.set_next_item_width(80)
-        _, self.osc_port_buf = imgui.input_text("Port", self.osc_port_buf, 8)
         imgui.end()
 
         # --- Tracking ---
