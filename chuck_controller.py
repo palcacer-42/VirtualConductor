@@ -13,6 +13,7 @@ EFFECTS = {
     "Theremin":   "chuck-scripts/modules/theremin.ck",
     "Synth":      "chuck-scripts/modules/synth.ck",
     "Granulator": "chuck-scripts/modules/granulator.ck",
+    "Burst-trigger": "chuck-scripts/modules/burst-trigger.ck",
 }
 
 
