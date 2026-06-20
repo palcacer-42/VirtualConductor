@@ -1,0 +1,35 @@
+[Window][Debug##Default]
+Pos=60,60
+Size=400,400
+Collapsed=0
+
+[Window][Camera Feed]
+Pos=17,14
+Size=656,515
+Collapsed=0
+
+[Window][Tracking]
+Pos=1074,93
+Size=192,168
+Collapsed=0
+
+[Window][Gestures]
+Pos=1079,302
+Size=219,144
+Collapsed=0
+
+[Window][ChucK]
+Pos=21,529
+Size=655,267
+Collapsed=0
+
+[Window][Active ChucK Scripts]
+Pos=590,50
+Size=451,502
+Collapsed=0
+
+[Window][Configuration]
+Pos=1155,497
+Size=351,340
+Collapsed=0
+

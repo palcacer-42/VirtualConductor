@@ -11,25 +11,29 @@ app comes back the way the user left it.
 import json
 import os
 
+# All persisted runtime state lives in one config/ folder beside this module, so
+# the project root stays clean as settings files accumulate.
+CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
+
+
+def _ensure_config_dir():
+    """Create config/ on demand so the first save works on a fresh checkout."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+
+
 # Per-param routing state (mode + slider position + chosen landmark), persisted
 # across sessions so the GUI restores exactly as the user left it.
-STATE_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "routing_state.json"
-)
+STATE_PATH = os.path.join(CONFIG_DIR, "routing_state.json")
 
 # The input source ("fake-theorbo" or "mic") is a single setting, not a per-param
 # value, so it persists in its own small file.
-INPUT_SOURCE_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "input_source.json"
-)
+INPUT_SOURCE_PATH = os.path.join(CONFIG_DIR, "input_source.json")
 INPUT_SOURCES = ["fake-theorbo", "mic"]
 DEFAULT_INPUT_SOURCE = "fake-theorbo"
 
-# The selected MIDI input device is a single setting like the input source, so
-# it persists in its own small file. "None" means listen to nothing.
-MIDI_CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "midi_config.json"
-)
+# All MIDI settings live together in one small file: the selected input device
+# ("None" = listen to nothing) and the burst-trigger's learned control.
+MIDI_CONFIG_PATH = os.path.join(CONFIG_DIR, "midi_config.json")
 DEFAULT_MIDI_PORT = "None"
 
 DEFAULT_MODE = "slider"   # params start on the slider until the user ticks landmark
@@ -140,6 +144,7 @@ def load_state():
 def save_state(state):
     """Persist {module: {param: {"mode", "slider", "landmark", "invert", "exp",
     "lo", "hi"}}}."""
+    _ensure_config_dir()
     with open(STATE_PATH, "w") as f:
         json.dump(state, f, indent=2)
 
@@ -160,26 +165,62 @@ def load_input_source():
 
 def save_input_source(source):
     """Persist the input source selection ("fake-theorbo" or "mic")."""
+    _ensure_config_dir()
     with open(INPUT_SOURCE_PATH, "w") as f:
         json.dump({"source": source}, f, indent=2)
+
+
+def _read_midi_config():
+    """Whole midi_config.json as a dict (empty if missing/corrupt)."""
+    if os.path.exists(MIDI_CONFIG_PATH):
+        try:
+            with open(MIDI_CONFIG_PATH) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except (ValueError, OSError):
+            pass
+    return {}
+
+
+def _write_midi_config(data):
+    _ensure_config_dir()
+    with open(MIDI_CONFIG_PATH, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 def load_midi_port():
     """Return the persisted MIDI input port name, or "None" if unset/invalid.
     The name isn't validated against connected devices here — the GUI checks it
     against the live port list before reopening (a saved device may be unplugged)."""
-    if os.path.exists(MIDI_CONFIG_PATH):
-        try:
-            with open(MIDI_CONFIG_PATH) as f:
-                port = json.load(f).get("port")
-            if isinstance(port, str):
-                return port
-        except (ValueError, OSError):
-            pass
-    return DEFAULT_MIDI_PORT
+    port = _read_midi_config().get("port")
+    return port if isinstance(port, str) else DEFAULT_MIDI_PORT
 
 
 def save_midi_port(port):
-    """Persist the selected MIDI input port name ("None" = listen to nothing)."""
-    with open(MIDI_CONFIG_PATH, "w") as f:
-        json.dump({"port": port}, f, indent=2)
+    """Persist the selected MIDI input port name ("None" = listen to nothing),
+    leaving the other MIDI settings in the file untouched."""
+    data = _read_midi_config()
+    data["port"] = port
+    _write_midi_config(data)
+
+
+def load_burst_binding():
+    """Return the persisted burst-trigger MIDI binding as
+    {"type": "note_on", "note": n} or {"type": "control_change", "control": n},
+    or None if unset/invalid."""
+    b = _read_midi_config().get("burst_binding")
+    if isinstance(b, dict):
+        if b.get("type") == "note_on" and isinstance(b.get("note"), int):
+            return {"type": "note_on", "note": b["note"]}
+        if b.get("type") == "control_change" and isinstance(b.get("control"), int):
+            return {"type": "control_change", "control": b["control"]}
+    return None
+
+
+def save_burst_binding(binding):
+    """Persist the burst-trigger MIDI binding (a dict), or None to clear it,
+    leaving the other MIDI settings in the file untouched."""
+    data = _read_midi_config()
+    data["burst_binding"] = binding
+    _write_midi_config(data)

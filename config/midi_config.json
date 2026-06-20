@@ -1,0 +1,7 @@
+{
+  "port": "nanoPAD2:nanoPAD2 _ CTRL 20:0",
+  "burst_binding": {
+    "type": "note_on",
+    "note": 41
+  }
+}

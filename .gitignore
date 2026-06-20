@@ -2,8 +2,8 @@ __pycache__/
 *.pyc
 venv/
 .claude/
-imgui.ini
-routing_state.json
-input_source.json
+config/imgui.ini
+config/routing_state.json
+config/input_source.json
 gestures/dataset.json
 gestures/*.pkl

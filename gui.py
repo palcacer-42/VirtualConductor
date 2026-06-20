@@ -3,6 +3,7 @@ GUI — Dear ImGui interface for Virtual Conductor.
 """
 
 import math
+import os
 
 import cv2
 import glfw
@@ -37,6 +38,12 @@ class ConductorGUI:
         glfw.swap_interval(1)
 
         imgui.create_context()
+        # Keep ImGui's auto-saved window layout in config/ too, so it doesn't
+        # litter the project root like the other persisted state.
+        os.makedirs(routing_config.CONFIG_DIR, exist_ok=True)
+        imgui.get_io().ini_file_name = os.path.join(
+            routing_config.CONFIG_DIR, "imgui.ini"
+        )
         self.impl = GlfwRenderer(self.window)
 
         # --- Video Texture ---
@@ -101,6 +108,14 @@ class ConductorGUI:
             self.midi_ports.index(self.midi.selected)
             if self.midi.selected in self.midi_ports else 0
         )
+
+        # Burst trigger MIDI-learn: the learned control (which pad fires the
+        # burst), restored from disk, plus a one-shot flag set while waiting to
+        # capture the next pad press. The mido callback (background thread) reads
+        # these and either records the binding or fires the burst.
+        self.burst_midi_binding = routing_config.load_burst_binding()
+        self._midi_learn_burst = False
+        self.midi.on_message = self._on_midi_message
 
     @staticmethod
     def _begin_disabled(disabled):
@@ -190,9 +205,31 @@ class ConductorGUI:
                 if not expanded:
                     continue
                 if module == "burst-trigger":
-                    # Trigger module: a Fire button in place of param sliders.
+                    # Trigger module: a Fire button in place of param sliders,
+                    # plus MIDI-learn. Fire is an action button; learn/clear are
+                    # link-style text so they read as a different kind of thing.
                     if imgui.button("Fire##burst"):
                         self.fire_burst()
+                    imgui.same_line()
+                    if self._midi_learn_burst:
+                        # Waiting for a pad press; click again to cancel. The
+                        # actual capture happens in the mido callback, which
+                        # clears the flag and the link reverts next frame.
+                        if self._link_text("learning... (cancel)", (1.0, 0.8, 0.2)):
+                            self._midi_learn_burst = False
+                    else:
+                        if self.burst_midi_binding is not None:
+                            imgui.text_disabled(
+                                self._binding_label(self.burst_midi_binding)
+                            )
+                            imgui.same_line()
+                        if self._link_text("learn", (0.4, 0.7, 1.0)):
+                            self._midi_learn_burst = True
+                        if self.burst_midi_binding is not None:
+                            imgui.same_line()
+                            if self._link_text("clear", (0.4, 0.7, 1.0)):
+                                self.burst_midi_binding = None
+                                routing_config.save_burst_binding(None)
                 elif self._render_instrument_section(module, params):
                     state_changed = True
 
@@ -379,6 +416,52 @@ class ConductorGUI:
         imgui.spacing()
         imgui.separator()
         return state_changed
+
+    @staticmethod
+    def _binding_from_msg(msg):
+        """Reduce a mido message to a stable binding key, or None if it isn't a
+        learnable onset. We bind to pad *presses* (note_on with velocity, or a
+        non-zero control_change), keyed by note/control number only — velocity
+        and value are dropped so any press of that pad matches, and the release
+        edge (velocity/value 0) is ignored so it doesn't double-fire."""
+        if msg.type == "note_on" and msg.velocity > 0:
+            return {"type": "note_on", "note": msg.note}
+        if msg.type == "control_change" and msg.value > 0:
+            return {"type": "control_change", "control": msg.control}
+        return None
+
+    def _on_midi_message(self, msg):
+        """mido callback (background thread). In learn mode, capture the next pad
+        press as the burst binding and persist it; otherwise fire the burst when
+        that learned control's onset arrives. Decoupled from the GUI/camera loop,
+        like the OSC burst trigger itself."""
+        if self._midi_learn_burst:
+            binding = self._binding_from_msg(msg)
+            if binding is not None:
+                self.burst_midi_binding = binding
+                self._midi_learn_burst = False
+                routing_config.save_burst_binding(binding)
+        elif self.burst_midi_binding is not None:
+            if self._binding_from_msg(msg) == self.burst_midi_binding:
+                self.fire_burst()
+
+    @staticmethod
+    def _binding_label(binding):
+        """Short human label for a learned binding, e.g. "cc 20" / "note 36"."""
+        if binding["type"] == "note_on":
+            return f"note {binding['note']}"
+        return f"cc {binding['control']}"
+
+    @staticmethod
+    def _link_text(label, color):
+        """Render link-style clickable text (no button chrome) and return True
+        when clicked. pyimgui has no hyperlink widget, so this is colored text
+        plus the last-item hit-test, with a hand cursor on hover."""
+        imgui.text_colored(label, *color)
+        clicked = imgui.is_item_clicked()
+        if imgui.is_item_hovered():
+            imgui.set_mouse_cursor(imgui.MOUSE_CURSOR_HAND)
+        return clicked
 
     def fire_burst(self):
         """Fire one noise burst on the ChucK side. Sent immediately as an OSC
