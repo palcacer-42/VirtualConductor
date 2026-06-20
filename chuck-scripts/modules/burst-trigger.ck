@@ -1,30 +1,19 @@
-// burst-test.ck
-// SPACE = fire a short noise burst.
-// Uses KBHit (terminal stdin) -- no /dev/input permissions needed.
+// burst-trigger.ck
+// Fires a short noise burst on each /trigger/burst event from Python.
+// Python sends the bang the instant the trigger fires (GUI button now, a MIDI
+// pad later), so this stays decoupled from the camera/GUI frame rate.
 
-// --- keyboard input ---
-KBHit kb;
-kb.on();
+// Shared trigger event — signalled by osc-router.ck when /trigger/burst arrives.
+global Event g_burst_fire;
 
 // --- mix bus (bursts patch into here) ---
 Gain mix => dac;
 0.5 => mix.gain;
 
-// SPACE = ASCII 32
-32 => int SPACE;
-
-chout <= "\rSPACE = noise burst       ";
-chout.flush();
-
 while( true )
 {
-    kb => now;                  // wait for a key event
-    while( kb.more() )
-    {
-        kb.getchar() => int key;
-        if( key == SPACE )
-            spork ~ burst();
-    }
+    g_burst_fire => now;        // wait for the next trigger
+    spork ~ burst();
 }
 
 // one burst: white noise through a quick AR envelope, then the shred ends

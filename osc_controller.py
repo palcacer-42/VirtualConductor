@@ -18,6 +18,15 @@ class OscController:
         """
         self.client.send_message(address, value)
         
+    def send_trigger(self, address):
+        """
+        Send a bang (no-argument message) to an OSC address.
+        Used for momentary trigger events (e.g. firing a burst). Sent the instant
+        the event happens — not batched into the per-frame param broadcast — so
+        the trigger stays decoupled from the camera/GUI frame rate.
+        """
+        self.client.send_message(address, [])
+
     def send_vector(self, address, x, y, z=0):
         """
         Send a vector (x, y, z) to an OSC address.

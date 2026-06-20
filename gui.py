@@ -159,6 +159,10 @@ class ConductorGUI:
             for module, params in routing_config.MODULE_PARAMS.items()
             if module != "input" and self.chuck.is_active(module.capitalize())
         ]
+        # burst-trigger has no params — it's a trigger module, rendered with a
+        # Fire button instead of param sliders. params is None to flag it.
+        if self.chuck.is_active("Burst-trigger"):
+            active.append(("burst-trigger", None))
 
         if not active:
             imgui.text_disabled("No instruments active.")
@@ -171,7 +175,13 @@ class ConductorGUI:
                     label, flags=imgui.TREE_NODE_DEFAULT_OPEN
                 )
                 expanded = header[0] if isinstance(header, tuple) else header
-                if expanded and self._render_instrument_section(module, params):
+                if not expanded:
+                    continue
+                if module == "burst-trigger":
+                    # Trigger module: a Fire button in place of param sliders.
+                    if imgui.button("Fire##burst"):
+                        self.fire_burst()
+                elif self._render_instrument_section(module, params):
                     state_changed = True
 
         imgui.end()
@@ -357,6 +367,15 @@ class ConductorGUI:
         imgui.spacing()
         imgui.separator()
         return state_changed
+
+    def fire_burst(self):
+        """Fire one noise burst on the ChucK side. Sent immediately as an OSC
+        bang on the triggering event — not folded into the per-frame param
+        broadcast — so the trigger stays decoupled from the camera/GUI frame
+        rate. A future MIDI pad would call this same method from its callback
+        and inherit the same low-latency path."""
+        if self.osc_enabled:
+            self.osc_ctrl.send_trigger("/trigger/burst")
 
     def _render_chuck_panel(self):
         imgui.begin("ChucK")

@@ -16,6 +16,12 @@ global float g_synth_cutoff;
 global float g_input_volume;
 global float g_input_source;   // 0 = fake-theorbo, 1 = mic
 
+// burst-trigger — a momentary event, not a held value. Python sends a bang on
+// /trigger/burst the instant the trigger fires (GUI button now, a MIDI pad
+// later); burst-trigger.ck waits on this and fires one burst per signal. Being
+// event-driven, it never rides the camera/GUI frame rate.
+global Event g_burst_fire;
+
 // granulator — every param is a normalized 0..1 value; granulator.ck maps each
 // into its [MIN, MAX] range.
 global float g_granulator_grainsize;
@@ -96,8 +102,17 @@ while( true )
     oin => now;
     while( oin.recv( msg ) )
     {
-        // /param/<module>/<param> carrying one float
         segments( msg.address ) @=> string seg[];
+
+        // /trigger/<name> — a bang (no args). A momentary event, handled before
+        // the /param guard. Signal the matching module's wait-event.
+        if( seg.size() >= 2 && seg[0] == "trigger" )
+        {
+            if( seg[1] == "burst" ) g_burst_fire.broadcast();
+            continue;
+        }
+
+        // /param/<module>/<param> carrying one float
         if( seg.size() < 3 || seg[0] != "param" || msg.numArgs() < 1 ) continue;
 
         seg[1] => string module;
