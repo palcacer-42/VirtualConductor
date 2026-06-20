@@ -1,5 +1,5 @@
 """
-Holistic Tracker — MediaPipe face, hand, and pose tracking + MIDI/OSC output.
+Holistic Tracker — MediaPipe face, hand, and pose tracking + OSC output.
 """
 
 import cv2
@@ -7,7 +7,6 @@ import mediapipe as mp
 from mediapipe.tasks.python import vision
 import numpy as np
 import os
-from midi_controller import MidiController
 from gesture_collector import normalize_hand
 from gesture_recognizer import GestureRecognizer
 
@@ -16,9 +15,6 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
 FACE_MODEL = os.path.join(MODEL_DIR, 'face_landmarker.task')
 HAND_MODEL = os.path.join(MODEL_DIR, 'hand_landmarker.task')
 POSE_MODEL = os.path.join(MODEL_DIR, 'pose_landmarker.task')
-
-# Standard MIDI CCs to cycle through
-MIDI_CC_OPTIONS = [1, 2, 7, 10, 11, 74, 71, 73]  # Mod, Breath, Vol, Pan, Exp, Cutoff, Res, Attack
 
 
 class HolisticTracker:
@@ -30,9 +26,6 @@ class HolisticTracker:
         self.face_landmarker = self._init_face_landmarker()
         self.hand_landmarker = self._init_hand_landmarker()
         self.pose_landmarker = self._init_pose_landmarker()
-
-        # Initialize MIDI
-        self.midi = MidiController()
 
         # Initialize Gesture Recognizer
         self.gesture_recognizer = GestureRecognizer()
@@ -69,9 +62,8 @@ class HolisticTracker:
         )
         return vision.PoseLandmarker.create_from_options(options)
 
-    def process_frame(self, frame, timestamp_ms, active_modules, cc_settings, osc_settings=None):
+    def process_frame(self, frame, timestamp_ms, active_modules, osc_settings=None):
         # active_modules: {"face": bool, ...}
-        # cc_settings: {"left": int, "right": int}
         # osc_settings: {"enabled": bool, "ip": str, "port": int}
 
         # Convert to MediaPipe Image
@@ -97,7 +89,6 @@ class HolisticTracker:
             "pose": pose_result if (pose_result and pose_result.pose_landmarks) else None,
             "left_hand": None,
             "right_hand": None,
-            "midi_values": {"left": 0, "right": 0},
             "gesture": {"right_hand": None, "left_hand": None},
             "gesture_confidence": {"right_hand": 0.0, "left_hand": 0.0}
         }
@@ -120,12 +111,8 @@ class HolisticTracker:
         fingers = [("thumb", 4), ("index", 8), ("middle", 12), ("ring", 16), ("pinky", 20)]
         landmark_values = {}
 
-        # MIDI — Left Hand
+        # Left Hand landmarks
         if holistic_data["left_hand"]:
-            index_y = 1.0 - holistic_data["left_hand"][8].y
-            holistic_data["midi_values"]["left"] = int(index_y * 127)
-            self.midi.send_control_change(0, cc_settings["left"], index_y)
-
             for name, idx in fingers:
                 pt = holistic_data["left_hand"][idx]
                 base = f"hand_left_{name}"
@@ -133,12 +120,8 @@ class HolisticTracker:
                 landmark_values[f"{base}_y"] = pt.y
                 landmark_values[f"{base}_z"] = pt.z
 
-        # MIDI — Right Hand
+        # Right Hand landmarks
         if holistic_data["right_hand"]:
-            index_y = 1.0 - holistic_data["right_hand"][8].y
-            holistic_data["midi_values"]["right"] = int(index_y * 127)
-            self.midi.send_control_change(0, cc_settings["right"], index_y)
-
             for name, idx in fingers:
                 pt = holistic_data["right_hand"][idx]
                 base = f"hand_right_{name}"
