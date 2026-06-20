@@ -14,6 +14,7 @@ import OpenGL.GL as gl
 from gesture_collector import GestureCollector
 from chuck_controller import ChuckController
 from osc_controller import OscController
+from midi_input import MidiListener
 import routing_config
 
 # Strength of the optional per-param "Exp" feel curve (normalized exponential
@@ -82,6 +83,23 @@ class ConductorGUI:
         self.osc_ctrl = OscController(
             self.osc_ip_buf,
             int(self.osc_port_buf) if self.osc_port_buf.isdigit() else 8000,
+        )
+
+        # --- MIDI Input ---
+        # Infrastructure only for now: pick a connected device and watch its
+        # incoming messages in the monitor. Mapping MIDI to ChucK/params comes
+        # later via self.midi.on_message. The device list is re-scanned on
+        # startup and on the panel's Refresh button, not every frame.
+        self.midi = MidiListener()
+        self.midi_ports = MidiListener.available_ports()
+        saved_port = routing_config.load_midi_port()
+        # Only reopen the saved device if it's actually plugged in right now;
+        # otherwise fall back to None (it was unplugged since last session).
+        if saved_port != "None" and saved_port in self.midi_ports:
+            self.midi.select(saved_port)
+        self.midi_port_index = (
+            self.midi_ports.index(self.midi.selected)
+            if self.midi.selected in self.midi_ports else 0
         )
 
     @staticmethod
@@ -489,8 +507,40 @@ class ConductorGUI:
         imgui.image(self.video_texture, vid_w, vid_h)
         imgui.end()
 
-        # --- MIDI ---
-        imgui.begin("MIDI")
+        # --- MIDI Configuration ---
+        imgui.begin("MIDI Configuration")
+
+        # Device dropdown. The list is re-scanned on Refresh (and at startup),
+        # not every frame — enumerating hardware each frame is wasteful.
+        imgui.text("Device")
+        imgui.same_line()
+        imgui.set_next_item_width(220)
+        changed, self.midi_port_index = imgui.combo(
+            "##midi_device", self.midi_port_index, self.midi_ports
+        )
+        if changed:
+            port = self.midi_ports[self.midi_port_index]
+            self.midi.select(port)
+            routing_config.save_midi_port(port)
+        imgui.same_line()
+        if imgui.button("Refresh"):
+            self._refresh_midi_ports()
+
+        imgui.separator()
+
+        # Live monitor of incoming messages, with a Clear button.
+        imgui.text("Incoming")
+        imgui.same_line()
+        if imgui.small_button("Clear"):
+            self.midi.clear_log()
+        # Snapshot the deque before iterating — the mido callback appends to it
+        # from a background thread.
+        imgui.begin_child("midi_log", 0, 150, border=True)
+        for line in list(self.midi.log):
+            imgui.text(line)
+        imgui.set_scroll_here_y(1.0)
+        imgui.end_child()
+
         imgui.end()
 
         # --- OSC ---
@@ -657,7 +707,20 @@ class ConductorGUI:
         self.impl.render(imgui.get_draw_data())
         glfw.swap_buffers(self.window)
 
+    def _refresh_midi_ports(self):
+        """Re-scan connected MIDI inputs, keeping the current selection if it's
+        still present, otherwise dropping it and falling back to None (the device
+        was unplugged)."""
+        self.midi_ports = MidiListener.available_ports()
+        if self.midi.selected in self.midi_ports:
+            self.midi_port_index = self.midi_ports.index(self.midi.selected)
+        else:
+            self.midi.select("None")
+            routing_config.save_midi_port("None")
+            self.midi_port_index = 0
+
     def shutdown(self):
+        self.midi.close()
         self.chuck.stop_vm()
         gl.glDeleteTextures(1, [self.video_texture])
         self.impl.shutdown()

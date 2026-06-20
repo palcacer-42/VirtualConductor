@@ -25,6 +25,13 @@ INPUT_SOURCE_PATH = os.path.join(
 INPUT_SOURCES = ["fake-theorbo", "mic"]
 DEFAULT_INPUT_SOURCE = "fake-theorbo"
 
+# The selected MIDI input device is a single setting like the input source, so
+# it persists in its own small file. "None" means listen to nothing.
+MIDI_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "midi_config.json"
+)
+DEFAULT_MIDI_PORT = "None"
+
 DEFAULT_MODE = "slider"   # params start on the slider until the user ticks landmark
 DEFAULT_SLIDER = 0.5      # neutral, matches the seeded landmark center
 DEFAULT_EXP = False       # Exp curve is a feel knob, applied in Python to the
@@ -155,3 +162,24 @@ def save_input_source(source):
     """Persist the input source selection ("fake-theorbo" or "mic")."""
     with open(INPUT_SOURCE_PATH, "w") as f:
         json.dump({"source": source}, f, indent=2)
+
+
+def load_midi_port():
+    """Return the persisted MIDI input port name, or "None" if unset/invalid.
+    The name isn't validated against connected devices here — the GUI checks it
+    against the live port list before reopening (a saved device may be unplugged)."""
+    if os.path.exists(MIDI_CONFIG_PATH):
+        try:
+            with open(MIDI_CONFIG_PATH) as f:
+                port = json.load(f).get("port")
+            if isinstance(port, str):
+                return port
+        except (ValueError, OSError):
+            pass
+    return DEFAULT_MIDI_PORT
+
+
+def save_midi_port(port):
+    """Persist the selected MIDI input port name ("None" = listen to nothing)."""
+    with open(MIDI_CONFIG_PATH, "w") as f:
+        json.dump({"port": port}, f, indent=2)
