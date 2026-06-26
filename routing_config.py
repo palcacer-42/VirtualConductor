@@ -224,3 +224,25 @@ def save_burst_binding(binding):
     data = _read_midi_config()
     data["burst_binding"] = binding
     _write_midi_config(data)
+
+
+def load_collect_binding():
+    """Return the persisted aliased-shimmer "collect" gate MIDI binding as
+    {"type": "note_on", "note": n} or {"type": "control_change", "control": n},
+    or None if unset/invalid. The learned control gates the effect: note-on /
+    cc>0 opens it, note-off / cc 0 closes it."""
+    b = _read_midi_config().get("collect_binding")
+    if isinstance(b, dict):
+        if b.get("type") == "note_on" and isinstance(b.get("note"), int):
+            return {"type": "note_on", "note": b["note"]}
+        if b.get("type") == "control_change" and isinstance(b.get("control"), int):
+            return {"type": "control_change", "control": b["control"]}
+    return None
+
+
+def save_collect_binding(binding):
+    """Persist the "collect" gate MIDI binding (a dict), or None to clear it,
+    leaving the other MIDI settings in the file untouched."""
+    data = _read_midi_config()
+    data["collect_binding"] = binding
+    _write_midi_config(data)

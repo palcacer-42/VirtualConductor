@@ -22,6 +22,12 @@ global float g_input_source;   // 0 = fake-theorbo, 1 = mic
 // event-driven, it never rides the camera/GUI frame rate.
 global Event g_burst_fire;
 
+// aliased-shimmer — the "collect" gate. A held 0/1 state, not an event: Python
+// sends 1 the instant the gate opens (GUI button pressed or a MIDI pad note-on)
+// and 0 when it closes (button released / note-off), on /gate/collect. A float
+// the module polls.
+global float g_collect_gate;
+
 // granulator — every param is a normalized 0..1 value; granulator.ck maps each
 // into its [MIN, MAX] range.
 global float g_granulator_grainsize;
@@ -52,6 +58,8 @@ global float g_granulator_mastervol;
 
 0.5 => g_input_volume;
 0.0 => g_input_source;   // 0 = fake-theorbo (default), 1 = mic
+
+0.0 => g_collect_gate;   // gate closed at start
 
 0.5 => g_granulator_grainsize;
 0.5 => g_granulator_density;
@@ -109,6 +117,14 @@ while( true )
         if( seg.size() >= 2 && seg[0] == "trigger" )
         {
             if( seg[1] == "burst" ) g_burst_fire.broadcast();
+            continue;
+        }
+
+        // /gate/<name> — a held 0/1 state (button down/up or MIDI note on/off),
+        // carrying one float. Handled before the /param guard.
+        if( seg.size() >= 2 && seg[0] == "gate" && msg.numArgs() >= 1 )
+        {
+            if( seg[1] == "collect" ) msg.getFloat(0) => g_collect_gate;
             continue;
         }
 

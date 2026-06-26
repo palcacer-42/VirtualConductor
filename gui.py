@@ -41,9 +41,13 @@ class ConductorGUI:
         # Keep ImGui's auto-saved window layout in config/ too, so it doesn't
         # litter the project root like the other persisted state.
         os.makedirs(routing_config.CONFIG_DIR, exist_ok=True)
-        imgui.get_io().ini_file_name = os.path.join(
-            routing_config.CONFIG_DIR, "imgui.ini"
-        )
+        # Keep the io wrapper alive for the app's lifetime: pyimgui parks the C
+        # string's backing bytes on the wrapper (_keep_ini_alive), and get_io()
+        # returns a fresh wrapper each call. Setting it on a throwaway get_io()
+        # lets those bytes get GC'd, dangling IniFilename so ImGui never saves.
+        self.io = imgui.get_io()
+        self._ini_path = os.path.join(routing_config.CONFIG_DIR, "imgui.ini")
+        self.io.ini_file_name = self._ini_path
         self.impl = GlfwRenderer(self.window)
 
         # --- Video Texture ---
@@ -115,6 +119,18 @@ class ConductorGUI:
         # these and either records the binding or fires the burst.
         self.burst_midi_binding = routing_config.load_burst_binding()
         self._midi_learn_burst = False
+
+        # Aliased-shimmer "collect" gate: held = 1, released = 0. Two sources can
+        # hold it open — the GUI button (mouse held) and a learned MIDI pad
+        # (note-on..note-off) — so we track each and the gate is open if either
+        # is. The combined edge is what we send on OSC, so it only fires on a real
+        # open/close, never every frame.
+        self.collect_midi_binding = routing_config.load_collect_binding()
+        self._midi_learn_collect = False
+        self._collect_gate_mouse = False
+        self._collect_gate_midi = False
+        self._collect_gate_open = False
+
         self.midi.on_message = self._on_midi_message
 
     @staticmethod
@@ -190,6 +206,8 @@ class ConductorGUI:
         # Fire button instead of param sliders. params is None to flag it.
         if self.chuck.is_active("Burst-trigger"):
             active.append(("burst-trigger", None))
+        if self.chuck.is_active("Aliased-shimmer"):
+            active.append(("aliased-shimmer", None))
 
         if not active:
             imgui.text_disabled("No instruments active.")
@@ -230,6 +248,35 @@ class ConductorGUI:
                             if self._link_text("clear", (0.4, 0.7, 1.0)):
                                 self.burst_midi_binding = None
                                 routing_config.save_burst_binding(None)
+                elif module == "aliased-shimmer":
+                    # Gate module: Collect is held = 1, released = 0. We read the
+                    # button's held state (is_item_active) each frame rather than
+                    # its click, so the gate tracks press AND release. learn/clear
+                    # are link-style text, mirroring the burst Fire row — but the
+                    # learned pad gates on note-on/note-off, not a one-shot fire.
+                    imgui.button("Collect##aliased")
+                    self._collect_gate_mouse = imgui.is_item_active()
+                    self._update_collect_gate()
+                    imgui.same_line()
+                    if self._midi_learn_collect:
+                        # Waiting for a pad press; click again to cancel. The
+                        # capture happens in the mido callback, which clears the
+                        # flag and the link reverts next frame.
+                        if self._link_text("learning... (cancel)", (1.0, 0.8, 0.2)):
+                            self._midi_learn_collect = False
+                    else:
+                        if self.collect_midi_binding is not None:
+                            imgui.text_disabled(
+                                self._binding_label(self.collect_midi_binding)
+                            )
+                            imgui.same_line()
+                        if self._link_text("learn", (0.4, 0.7, 1.0)):
+                            self._midi_learn_collect = True
+                        if self.collect_midi_binding is not None:
+                            imgui.same_line()
+                            if self._link_text("clear", (0.4, 0.7, 1.0)):
+                                self.collect_midi_binding = None
+                                routing_config.save_collect_binding(None)
                 elif self._render_instrument_section(module, params):
                     state_changed = True
 
@@ -431,10 +478,11 @@ class ConductorGUI:
         return None
 
     def _on_midi_message(self, msg):
-        """mido callback (background thread). In learn mode, capture the next pad
-        press as the burst binding and persist it; otherwise fire the burst when
-        that learned control's onset arrives. Decoupled from the GUI/camera loop,
-        like the OSC burst trigger itself."""
+        """mido callback (background thread). Drives both the burst trigger and
+        the collect gate: in each one's learn mode, capture the next pad press as
+        its binding and persist it; otherwise the bound control fires the burst on
+        its onset, and gates collect open/closed on its onset/release. Decoupled
+        from the GUI/camera loop, like the OSC triggers themselves."""
         if self._midi_learn_burst:
             binding = self._binding_from_msg(msg)
             if binding is not None:
@@ -444,6 +492,20 @@ class ConductorGUI:
         elif self.burst_midi_binding is not None:
             if self._binding_from_msg(msg) == self.burst_midi_binding:
                 self.fire_burst()
+
+        # collect gate: in learn mode capture the next pad press; otherwise the
+        # bound pad gates the effect — its onset opens, its release closes.
+        if self._midi_learn_collect:
+            binding = self._binding_from_msg(msg)
+            if binding is not None:
+                self.collect_midi_binding = binding
+                self._midi_learn_collect = False
+                routing_config.save_collect_binding(binding)
+        else:
+            edge = self._gate_edge(msg, self.collect_midi_binding)
+            if edge is not None:
+                self._collect_gate_midi = (edge == "open")
+                self._update_collect_gate()
 
     @staticmethod
     def _binding_label(binding):
@@ -471,6 +533,35 @@ class ConductorGUI:
         and inherit the same low-latency path."""
         if self.osc_enabled:
             self.osc_ctrl.send_trigger("/trigger/burst")
+
+    def _update_collect_gate(self):
+        """Recompute the collect gate from its two sources (GUI button held, MIDI
+        pad held) and send /gate/collect only when the combined open/closed state
+        flips — so the edge fires once, not every frame. Called from the GUI loop
+        (button) and the mido callback (pad), like fire_burst's low-latency path."""
+        open_ = self._collect_gate_mouse or self._collect_gate_midi
+        if open_ == self._collect_gate_open:
+            return
+        self._collect_gate_open = open_
+        if self.osc_enabled:
+            self.osc_ctrl.send_value("/gate/collect", 1.0 if open_ else 0.0)
+
+    @staticmethod
+    def _gate_edge(msg, binding):
+        """Classify a mido message against a learned gate binding: "open" on its
+        onset (note-on with velocity, or cc > 0), "close" on its release (note-off,
+        note-on velocity 0, or cc 0), or None if it isn't that control."""
+        if binding is None:
+            return None
+        if binding["type"] == "note_on":
+            if msg.type == "note_on" and msg.note == binding["note"]:
+                return "open" if msg.velocity > 0 else "close"
+            if msg.type == "note_off" and msg.note == binding["note"]:
+                return "close"
+        elif binding["type"] == "control_change":
+            if msg.type == "control_change" and msg.control == binding["control"]:
+                return "open" if msg.value > 0 else "close"
+        return None
 
     def _render_chuck_panel(self):
         imgui.begin("ChucK")
@@ -802,6 +893,9 @@ class ConductorGUI:
             self.midi_port_index = 0
 
     def shutdown(self):
+        # Force-write the layout now: ImGui only auto-saves ~5s after a change,
+        # so a window moved just before quitting would otherwise be lost.
+        imgui.save_ini_settings_to_disk(self._ini_path)
         self.midi.close()
         self.chuck.stop_vm()
         gl.glDeleteTextures(1, [self.video_texture])
