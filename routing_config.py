@@ -87,9 +87,20 @@ MODULE_PARAMS = {
         # output
         ("mastervol",  "hand_right_pinky_z"),
     ],
-    # Aliased-shimmer: a looper with one routable param — the loop's output
-    # volume. Collect/Clear are buttons (rendered separately), not params.
-    "aliased-shimmer": [("mastervol", "hand_right_pinky_z")],
+    # Aliased-shimmer: a looper. Per-voice volume for the 1x/2x/4x/8x layers,
+    # then the overall master volume last. Collect/Clear are buttons (rendered
+    # separately), not params.
+    "aliased-shimmer": [
+        ("vol1x",     "hand_right_index_y"),
+        ("vol2x",     "hand_right_middle_y"),
+        ("vol4x",     "hand_right_ring_y"),
+        ("vol8x",     "hand_right_pinky_y"),
+        ("spread",    "hand_right_index_x"),
+        ("lforate2x", "hand_right_middle_x"),
+        ("lforate4x", "hand_right_ring_x"),
+        ("lforate8x", "hand_right_pinky_x"),
+        ("mastervol", "hand_right_pinky_z"),
+    ],
 }
 
 # All selectable landmarks — must match the table in landmarks.ck.

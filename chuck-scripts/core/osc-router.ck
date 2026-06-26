@@ -33,8 +33,16 @@ global float g_aliased_shimmer_collect;
 // detects the rise, acts once, and resets it to 0 (consumes it).
 global int g_aliased_shimmer_clear;
 
-// aliased-shimmer — loop output volume, a normalized 0..1 value the module maps
-// into its gain range, like the granulator params.
+// aliased-shimmer — per-voice volumes (the 1x/2x/4x/8x layers) and the overall
+// master volume. Normalized 0..1; the module maps them to gains.
+global float g_aliased_shimmer_vol1x;
+global float g_aliased_shimmer_vol2x;
+global float g_aliased_shimmer_vol4x;
+global float g_aliased_shimmer_vol8x;
+global float g_aliased_shimmer_spread;     // stereo spread (pan LFO width)
+global float g_aliased_shimmer_lforate2x;  // pan LFO rate, per pitched voice
+global float g_aliased_shimmer_lforate4x;
+global float g_aliased_shimmer_lforate8x;
 global float g_aliased_shimmer_mastervol;
 
 // granulator — every param is a normalized 0..1 value; granulator.ck maps each
@@ -70,6 +78,14 @@ global float g_granulator_mastervol;
 
 0.0 => g_aliased_shimmer_collect;   // gate closed at start
 0 => g_aliased_shimmer_clear;    // no pending trigger at start
+0.5 => g_aliased_shimmer_vol1x;
+0.5 => g_aliased_shimmer_vol2x;
+0.5 => g_aliased_shimmer_vol4x;
+0.5 => g_aliased_shimmer_vol8x;
+0.5 => g_aliased_shimmer_spread;
+0.5 => g_aliased_shimmer_lforate2x;
+0.5 => g_aliased_shimmer_lforate4x;
+0.5 => g_aliased_shimmer_lforate8x;
 0.5 => g_aliased_shimmer_mastervol;   // unity once mapped (0.5 -> 1.0)
 
 0.5 => g_granulator_grainsize;
@@ -164,7 +180,15 @@ while( true )
         }
         else if( module == "aliased-shimmer" )
         {
-            if( param == "mastervol" ) v => g_aliased_shimmer_mastervol;
+            if(      param == "vol1x" )     v => g_aliased_shimmer_vol1x;
+            else if( param == "vol2x" )     v => g_aliased_shimmer_vol2x;
+            else if( param == "vol4x" )     v => g_aliased_shimmer_vol4x;
+            else if( param == "vol8x" )     v => g_aliased_shimmer_vol8x;
+            else if( param == "spread" )    v => g_aliased_shimmer_spread;
+            else if( param == "lforate2x" ) v => g_aliased_shimmer_lforate2x;
+            else if( param == "lforate4x" ) v => g_aliased_shimmer_lforate4x;
+            else if( param == "lforate8x" ) v => g_aliased_shimmer_lforate8x;
+            else if( param == "mastervol" ) v => g_aliased_shimmer_mastervol;
         }
         else if( module == "granulator" )
         {
