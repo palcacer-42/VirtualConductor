@@ -7,5 +7,9 @@
   "collect_binding": {
     "type": "note_on",
     "note": 36
+  },
+  "clear_binding": {
+    "type": "note_on",
+    "note": 37
   }
 }

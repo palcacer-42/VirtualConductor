@@ -26,7 +26,16 @@ global Event g_burst_fire;
 // sends 1 the instant the gate opens (GUI button pressed or a MIDI pad note-on)
 // and 0 when it closes (button released / note-off), on /gate/collect. A float
 // the module polls.
-global float g_collect_gate;
+global float g_aliased_shimmer_collect;
+
+// aliased-shimmer — the "clear" trigger. A one-shot event delivered as a 0->1
+// edge: Python sends a bang on /trigger/clear, we set this to 1, and the module
+// detects the rise, acts once, and resets it to 0 (consumes it).
+global int g_aliased_shimmer_clear;
+
+// aliased-shimmer — loop output volume, a normalized 0..1 value the module maps
+// into its gain range, like the granulator params.
+global float g_aliased_shimmer_mastervol;
 
 // granulator — every param is a normalized 0..1 value; granulator.ck maps each
 // into its [MIN, MAX] range.
@@ -59,7 +68,9 @@ global float g_granulator_mastervol;
 0.5 => g_input_volume;
 0.0 => g_input_source;   // 0 = fake-theorbo (default), 1 = mic
 
-0.0 => g_collect_gate;   // gate closed at start
+0.0 => g_aliased_shimmer_collect;   // gate closed at start
+0 => g_aliased_shimmer_clear;    // no pending trigger at start
+0.5 => g_aliased_shimmer_mastervol;   // unity once mapped (0.5 -> 1.0)
 
 0.5 => g_granulator_grainsize;
 0.5 => g_granulator_density;
@@ -117,6 +128,7 @@ while( true )
         if( seg.size() >= 2 && seg[0] == "trigger" )
         {
             if( seg[1] == "burst" ) g_burst_fire.broadcast();
+            else if( seg[1] == "clear" ) 1 => g_aliased_shimmer_clear;
             continue;
         }
 
@@ -124,7 +136,7 @@ while( true )
         // carrying one float. Handled before the /param guard.
         if( seg.size() >= 2 && seg[0] == "gate" && msg.numArgs() >= 1 )
         {
-            if( seg[1] == "collect" ) msg.getFloat(0) => g_collect_gate;
+            if( seg[1] == "collect" ) msg.getFloat(0) => g_aliased_shimmer_collect;
             continue;
         }
 
@@ -149,6 +161,10 @@ while( true )
         {
             if(      param == "volume" )  v => g_input_volume;
             else if( param == "source" )  v => g_input_source;
+        }
+        else if( module == "aliased-shimmer" )
+        {
+            if( param == "mastervol" ) v => g_aliased_shimmer_mastervol;
         }
         else if( module == "granulator" )
         {

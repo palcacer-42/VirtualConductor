@@ -87,6 +87,9 @@ MODULE_PARAMS = {
         # output
         ("mastervol",  "hand_right_pinky_z"),
     ],
+    # Aliased-shimmer: a looper with one routable param — the loop's output
+    # volume. Collect/Clear are buttons (rendered separately), not params.
+    "aliased-shimmer": [("mastervol", "hand_right_pinky_z")],
 }
 
 # All selectable landmarks — must match the table in landmarks.ck.
@@ -245,4 +248,26 @@ def save_collect_binding(binding):
     leaving the other MIDI settings in the file untouched."""
     data = _read_midi_config()
     data["collect_binding"] = binding
+    _write_midi_config(data)
+
+
+def load_clear_binding():
+    """Return the persisted aliased-shimmer "clear" trigger MIDI binding as
+    {"type": "note_on", "note": n} or {"type": "control_change", "control": n},
+    or None if unset/invalid. The learned control fires the clear on its onset,
+    like the burst trigger."""
+    b = _read_midi_config().get("clear_binding")
+    if isinstance(b, dict):
+        if b.get("type") == "note_on" and isinstance(b.get("note"), int):
+            return {"type": "note_on", "note": b["note"]}
+        if b.get("type") == "control_change" and isinstance(b.get("control"), int):
+            return {"type": "control_change", "control": b["control"]}
+    return None
+
+
+def save_clear_binding(binding):
+    """Persist the "clear" trigger MIDI binding (a dict), or None to clear it,
+    leaving the other MIDI settings in the file untouched."""
+    data = _read_midi_config()
+    data["clear_binding"] = binding
     _write_midi_config(data)

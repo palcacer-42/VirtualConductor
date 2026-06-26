@@ -131,6 +131,11 @@ class ConductorGUI:
         self._collect_gate_midi = False
         self._collect_gate_open = False
 
+        # Aliased-shimmer "clear" trigger: one-shot, like the burst Fire — its
+        # learned pad fires the clear on its onset.
+        self.clear_midi_binding = routing_config.load_clear_binding()
+        self._midi_learn_clear = False
+
         self.midi.on_message = self._on_midi_message
 
     @staticmethod
@@ -206,8 +211,6 @@ class ConductorGUI:
         # Fire button instead of param sliders. params is None to flag it.
         if self.chuck.is_active("Burst-trigger"):
             active.append(("burst-trigger", None))
-        if self.chuck.is_active("Aliased-shimmer"):
-            active.append(("aliased-shimmer", None))
 
         if not active:
             imgui.text_disabled("No instruments active.")
@@ -277,6 +280,33 @@ class ConductorGUI:
                             if self._link_text("clear", (0.4, 0.7, 1.0)):
                                 self.collect_midi_binding = None
                                 routing_config.save_collect_binding(None)
+                    # Clear is a one-shot trigger (not a gate): the button's click
+                    # fires it once; the ChucK side sees the 0->1 edge and acts.
+                    # learn/clear mirror the burst Fire row — the learned pad fires
+                    # the clear on its onset.
+                    if imgui.button("Clear##aliased"):
+                        self.fire_clear()
+                    imgui.same_line()
+                    if self._midi_learn_clear:
+                        if self._link_text("learning... (cancel)", (1.0, 0.8, 0.2)):
+                            self._midi_learn_clear = False
+                    else:
+                        if self.clear_midi_binding is not None:
+                            imgui.text_disabled(
+                                self._binding_label(self.clear_midi_binding)
+                            )
+                            imgui.same_line()
+                        if self._link_text("learn", (0.4, 0.7, 1.0)):
+                            self._midi_learn_clear = True
+                        if self.clear_midi_binding is not None:
+                            imgui.same_line()
+                            if self._link_text("clear", (0.4, 0.7, 1.0)):
+                                self.clear_midi_binding = None
+                                routing_config.save_clear_binding(None)
+                    # Master volume (and any future params) below the buttons,
+                    # rendered like the other instruments' routing rows.
+                    if self._render_instrument_section(module, params):
+                        state_changed = True
                 elif self._render_instrument_section(module, params):
                     state_changed = True
 
@@ -478,11 +508,12 @@ class ConductorGUI:
         return None
 
     def _on_midi_message(self, msg):
-        """mido callback (background thread). Drives both the burst trigger and
-        the collect gate: in each one's learn mode, capture the next pad press as
-        its binding and persist it; otherwise the bound control fires the burst on
-        its onset, and gates collect open/closed on its onset/release. Decoupled
-        from the GUI/camera loop, like the OSC triggers themselves."""
+        """mido callback (background thread). Drives the burst trigger, the
+        collect gate, and the clear trigger: in each one's learn mode, capture the
+        next pad press as its binding and persist it; otherwise the bound control
+        fires burst/clear on its onset, and gates collect open/closed on its
+        onset/release. Decoupled from the GUI/camera loop, like the OSC triggers
+        themselves."""
         if self._midi_learn_burst:
             binding = self._binding_from_msg(msg)
             if binding is not None:
@@ -506,6 +537,18 @@ class ConductorGUI:
             if edge is not None:
                 self._collect_gate_midi = (edge == "open")
                 self._update_collect_gate()
+
+        # clear trigger: in learn mode capture the next pad press; otherwise the
+        # bound pad fires the clear on its onset (one-shot, like burst).
+        if self._midi_learn_clear:
+            binding = self._binding_from_msg(msg)
+            if binding is not None:
+                self.clear_midi_binding = binding
+                self._midi_learn_clear = False
+                routing_config.save_clear_binding(binding)
+        elif self.clear_midi_binding is not None:
+            if self._binding_from_msg(msg) == self.clear_midi_binding:
+                self.fire_clear()
 
     @staticmethod
     def _binding_label(binding):
@@ -533,6 +576,14 @@ class ConductorGUI:
         and inherit the same low-latency path."""
         if self.osc_enabled:
             self.osc_ctrl.send_trigger("/trigger/burst")
+
+    def fire_clear(self):
+        """Trigger one clear on the ChucK side. Sent immediately as an OSC bang on
+        /trigger/clear when the button is clicked — decoupled from the per-frame
+        param broadcast like the burst trigger. The aliased-shimmer module reads
+        it as a 0->1 edge and fires once."""
+        if self.osc_enabled:
+            self.osc_ctrl.send_trigger("/trigger/clear")
 
     def _update_collect_gate(self):
         """Recompute the collect gate from its two sources (GUI button held, MIDI
